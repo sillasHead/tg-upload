@@ -5,6 +5,7 @@ on:
     branches: [feat/topic-destinations]
     paths:
       - '.github/scripts/apply_topic_destinations.py'
+      - '.github/scripts/fix_topic_request.py'
       - '.github/workflows/apply-topic-destinations.yml'
 
 permissions:
@@ -21,7 +22,9 @@ jobs:
         with:
           python-version: '3.12'
       - name: Apply patch
-        run: python .github/scripts/apply_topic_destinations.py
+        run: |
+          python .github/scripts/apply_topic_destinations.py
+          python .github/scripts/fix_topic_request.py
       - name: Install dependencies
         run: python -m pip install -r requirements.txt
       - name: Validate

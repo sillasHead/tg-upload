@@ -29,7 +29,19 @@ Requer Python 3.10+.
 ```powershell
 git clone https://github.com/sillasHead/telegram-media-upload.git
 cd telegram-media-upload
-python -m pip install -r requirements.txt
+.\setup.ps1
+```
+
+O `setup.ps1` instala o Telethon. Depois você pode usar o atalho do projeto:
+
+```powershell
+.\tg-upload.ps1 "C:\caminho\Season 01"
+```
+
+Também é possível executar diretamente com Python:
+
+```powershell
+python upload.py "C:\caminho\Season 01"
 ```
 
 No primeiro uso, o programa pede seu `api_id` e `api_hash` do Telegram e salva apenas no seu computador em:
@@ -44,45 +56,47 @@ Para obter `api_id` e `api_hash`, use `my.telegram.org` > **API development tool
 
 ## Uso
 
-Enviar uma temporada inteira:
+Antes do primeiro envio real, vale conferir o lote:
 
 ```powershell
-python upload.py "C:\Users\silla\Videos\video-dl\Bob Esponja Calça Quadrada\Season 01"
+.\tg-upload.ps1 "C:\Users\silla\Videos\video-dl\Bob Esponja Calça Quadrada\Season 01" --dry-run
 ```
 
-Visualizar o que seria enviado sem publicar:
+Enviar a temporada inteira:
 
 ```powershell
-python upload.py "C:\caminho\Season 01" --dry-run
+.\tg-upload.ps1 "C:\Users\silla\Videos\video-dl\Bob Esponja Calça Quadrada\Season 01"
 ```
 
 Enviar novamente arquivos que já constam no estado local:
 
 ```powershell
-python upload.py "C:\caminho\Season 01" --force
+.\tg-upload.ps1 "C:\caminho\Season 01" --force
 ```
 
 Enviar como documento em vez de vídeo reproduzível no feed:
 
 ```powershell
-python upload.py "C:\caminho\Season 01" --document
+.\tg-upload.ps1 "C:\caminho\Season 01" --document
 ```
 
 Não publicar separadores de temporada:
 
 ```powershell
-python upload.py "C:\caminho\Season 01" --no-season-header
+.\tg-upload.ps1 "C:\caminho\Season 01" --no-season-header
 ```
 
 Escolher outro canal apenas nessa execução:
 
 ```powershell
-python upload.py "C:\caminho\Season 01" --channel -1001234567890
+.\tg-upload.ps1 "C:\caminho\Season 01" --channel -1001234567890
 ```
 
 ## Organização
 
 O programa reconhece `SxxExx` no nome do arquivo. O título usado na legenda é o restante do nome, removendo o sufixo de qualidade como `[720p]`.
+
+Arquivos antigos do `video-dl` que tenham ` _ ` entre dois segmentos também são mostrados na legenda como ` + `, sem renomear o arquivo original.
 
 Os uploads concluídos são registrados localmente em:
 

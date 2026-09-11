@@ -9,11 +9,10 @@ S01E01 - Bolhas de sabão + Calça rasgada [720p].mp4
 S01E02 - Vizinhos náuticos terríveis + Escola de pilotagem [720p].mp4
 ```
 
-O uploader ordena os arquivos por temporada/episódio e gera automaticamente legendas como:
+O uploader ordena os arquivos por temporada/episódio e gera automaticamente uma legenda simples:
 
 ```text
-#S01 #S01E01
-Bolhas de sabão + Calça rasgada
+#S01E01 - Bolhas de sabão + Calça rasgada
 ```
 
 Também pode criar uma mensagem separadora quando começa uma temporada:
@@ -24,33 +23,35 @@ Também pode criar uma mensagem separadora quando começa uma temporada:
 
 ## Instalação
 
-Requer Python 3.10+.
+Requer Windows e Python 3.10+.
+
+Depois que o repositório estiver público, a instalação pode ser feita diretamente pelo PowerShell:
 
 ```powershell
-git clone https://github.com/sillasHead/telegram-media-upload.git
-cd telegram-media-upload
-.\setup.ps1
+irm https://raw.githubusercontent.com/sillasHead/telegram-media-upload/main/setup.ps1 | iex
 ```
 
-O `setup.ps1` instala o Telethon. Depois você pode usar o atalho do projeto:
+O instalador adiciona `tg-upload` ao PATH do usuário. Depois, em qualquer terminal:
 
 ```powershell
-.\tg-upload.ps1 "C:\caminho\Season 01"
+tg-upload "C:\Videos\Minha Serie\Season 01"
 ```
 
-Também é possível executar diretamente com Python:
+Para atualizar:
 
 ```powershell
-python upload.py "C:\caminho\Season 01"
+tg-upload update
 ```
 
-No primeiro uso, o programa pede seu `api_id` e `api_hash` do Telegram e salva apenas no seu computador em:
+## Primeiro uso
+
+No primeiro envio real, o programa pede seu `api_id` e `api_hash` do Telegram. Esses dados não ficam no repositório: são salvos somente no computador em:
 
 ```text
 %USERPROFILE%\.telegram-media-upload\config.json
 ```
 
-A sessão do Telethon também fica nessa pasta. Nada disso deve ser enviado ao GitHub.
+A sessão do Telethon e o histórico de uploads também ficam nessa pasta.
 
 Para obter `api_id` e `api_hash`, use `my.telegram.org` > **API development tools**.
 
@@ -59,37 +60,37 @@ Para obter `api_id` e `api_hash`, use `my.telegram.org` > **API development tool
 Antes do primeiro envio real, vale conferir o lote:
 
 ```powershell
-.\tg-upload.ps1 "C:\Users\silla\Videos\video-dl\Bob Esponja Calça Quadrada\Season 01" --dry-run
+tg-upload "C:\Videos\Minha Serie\Season 01" --dry-run
 ```
 
 Enviar a temporada inteira:
 
 ```powershell
-.\tg-upload.ps1 "C:\Users\silla\Videos\video-dl\Bob Esponja Calça Quadrada\Season 01"
+tg-upload "C:\Videos\Minha Serie\Season 01"
 ```
 
 Enviar novamente arquivos que já constam no estado local:
 
 ```powershell
-.\tg-upload.ps1 "C:\caminho\Season 01" --force
+tg-upload "C:\Videos\Minha Serie\Season 01" --force
 ```
 
 Enviar como documento em vez de vídeo reproduzível no feed:
 
 ```powershell
-.\tg-upload.ps1 "C:\caminho\Season 01" --document
+tg-upload "C:\Videos\Minha Serie\Season 01" --document
 ```
 
 Não publicar separadores de temporada:
 
 ```powershell
-.\tg-upload.ps1 "C:\caminho\Season 01" --no-season-header
+tg-upload "C:\Videos\Minha Serie\Season 01" --no-season-header
 ```
 
 Escolher outro canal apenas nessa execução:
 
 ```powershell
-.\tg-upload.ps1 "C:\caminho\Season 01" --channel -1001234567890
+tg-upload "C:\Videos\Minha Serie\Season 01" --channel -1001234567890
 ```
 
 ## Organização
@@ -106,6 +107,8 @@ Os uploads concluídos são registrados localmente em:
 
 Assim, executar o mesmo lote novamente não reenviará os episódios já registrados, a menos que seja usado `--force`.
 
-## Segurança
+## Privacidade e segurança
 
-Não coloque `api_hash`, telefone, código de login ou arquivo `.session` no repositório. O `.gitignore` deste projeto ignora arquivos de sessão e configurações locais comuns.
+Nenhuma credencial do Telegram, telefone, código de login, sessão ou ID de canal precisa ser armazenado no GitHub. O `.gitignore` também ignora `.env`, arquivos `.session`, `config.json`, `state.json` e a pasta local `.telegram-media-upload`.
+
+Por isso, o código pode ser mantido em um repositório público sem publicar esses dados pessoais. O próprio nome da conta do GitHub e o histórico público de commits continuam, naturalmente, visíveis no GitHub.

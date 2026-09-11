@@ -36,7 +36,7 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add upload.py README.md tests .github/workflows/ci.yml
+          git add upload.py README.md tests
           if (-not (git diff --cached --quiet)) {
             git commit -m "feat: adiciona destinos com tópicos do Telegram"
             git push origin HEAD:feat/topic-destinations

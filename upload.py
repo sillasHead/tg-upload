@@ -36,8 +36,8 @@ class MediaItem:
 
     @property
     def caption(self) -> str:
-        if self.code and self.season is not None:
-            return f"#S{self.season:02d} #{self.code}\n{self.title}"
+        if self.code:
+            return f"#{self.code} - {self.title}"
         return self.title
 
 
@@ -343,8 +343,8 @@ async def run(args: argparse.Namespace) -> int:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        prog="telegram-media-upload",
-        description="Envia vídeos em lote para um canal do Telegram e gera hashtags Sxx/Exx automaticamente.",
+        prog="tg-upload",
+        description="Envia vídeos em lote para um canal do Telegram e gera uma hashtag SxxExx por episódio.",
     )
     parser.add_argument("path", help="Arquivo ou pasta que será enviada.")
     parser.add_argument("--channel", help="@username, ID ou -100... do canal para esta execução.")

@@ -24,6 +24,7 @@ VIDEO_EXTENSIONS = {".mp4", ".mkv", ".mov", ".webm", ".avi", ".m4v"}
 EPISODE_RE = re.compile(r"(?i)\bS(?P<season>\d{1,3})E(?P<episode>\d{1,4})\b")
 QUALITY_RE = re.compile(r"\s*\[(?:\d{3,4}p|4k|8k)\]\s*$", re.IGNORECASE)
 SEASON_DIR_RE = re.compile(r"(?i)^season\s+0*(\d+)$")
+SPECIAL_COMMANDS = {"channel", "set-channel", "config"}
 
 
 @dataclass(frozen=True)
@@ -170,25 +171,21 @@ def get_api_credentials(config: dict[str, Any]) -> tuple[int, str]:
     return api_id, str(api_hash)
 
 
-async def choose_channel(client: TelegramClient, config: dict[str, Any], requested: str | None):
-    if requested:
-        candidate: str | int = requested
-        if re.fullmatch(r"-?\d+", requested):
-            candidate = int(requested)
-        return await client.get_entity(candidate)
+def channel_display_name(entity) -> str:
+    return (
+        getattr(entity, "title", None)
+        or getattr(entity, "username", None)
+        or str(utils.get_peer_id(entity))
+    )
 
-    env_channel = os.getenv("TG_CHANNEL")
-    if env_channel:
-        candidate = int(env_channel) if re.fullmatch(r"-?\d+", env_channel) else env_channel
-        return await client.get_entity(candidate)
 
-    configured_id = config.get("channel_id")
-    if configured_id is not None:
-        try:
-            return await client.get_entity(int(configured_id))
-        except Exception:
-            pass
+def save_default_channel(config: dict[str, Any], entity) -> None:
+    config["channel_id"] = utils.get_peer_id(entity)
+    config["channel_name"] = channel_display_name(entity)
+    save_json(CONFIG_PATH, config)
 
+
+async def prompt_channel(client: TelegramClient):
     dialogs = []
     async for dialog in client.iter_dialogs():
         if dialog.is_channel:
@@ -206,12 +203,93 @@ async def choose_channel(client: TelegramClient, config: dict[str, Any], request
     while True:
         choice = input("Número do canal: ").strip()
         if choice.isdigit() and 1 <= int(choice) <= len(dialogs):
-            selected = dialogs[int(choice) - 1]
-            config["channel_id"] = selected.id
-            config["channel_name"] = selected.name
-            save_json(CONFIG_PATH, config)
-            return selected.entity
+            return dialogs[int(choice) - 1].entity
         print("Opção inválida.")
+
+
+async def resolve_channel(client: TelegramClient, requested: str):
+    candidate: str | int = requested
+    if re.fullmatch(r"-?\d+", requested):
+        candidate = int(requested)
+    return await client.get_entity(candidate)
+
+
+async def choose_channel(client: TelegramClient, config: dict[str, Any], requested: str | None):
+    if requested:
+        return await resolve_channel(client, requested)
+
+    env_channel = os.getenv("TG_CHANNEL")
+    if env_channel:
+        return await resolve_channel(client, env_channel)
+
+    configured_id = config.get("channel_id")
+    if configured_id is not None:
+        try:
+            return await client.get_entity(int(configured_id))
+        except Exception:
+            pass
+
+    entity = await prompt_channel(client)
+    save_default_channel(config, entity)
+    return entity
+
+
+def show_channel() -> int:
+    config: dict[str, Any] = load_json(CONFIG_PATH, {})
+    env_channel = os.getenv("TG_CHANNEL")
+    if env_channel:
+        print(f"Canal ativo via TG_CHANNEL: {env_channel}")
+        if config.get("channel_id") is not None:
+            print(
+                f"Canal padrão salvo: {config.get('channel_name') or '(sem nome)'} "
+                f"({config.get('channel_id')})"
+            )
+        return 0
+
+    channel_id = config.get("channel_id")
+    if channel_id is None:
+        print("Nenhum canal padrão configurado.")
+        print("Use: tg-upload set-channel")
+        return 1
+
+    print(f"Canal padrão: {config.get('channel_name') or '(sem nome)'} ({channel_id})")
+    return 0
+
+
+def show_config() -> int:
+    config: dict[str, Any] = load_json(CONFIG_PATH, {})
+    print(f"Config:    {CONFIG_PATH}")
+    print(f"Sessão:    {SESSION_BASE}.session")
+    print(f"Histórico: {STATE_PATH}")
+    print(f"API ID:    {'configurado' if (os.getenv('TG_API_ID') or config.get('api_id')) else 'não configurado'}")
+    print(f"API hash:  {'configurado' if (os.getenv('TG_API_HASH') or config.get('api_hash')) else 'não configurado'}")
+
+    if os.getenv("TG_CHANNEL"):
+        print(f"Canal:     {os.getenv('TG_CHANNEL')} (via TG_CHANNEL)")
+    elif config.get("channel_id") is not None:
+        print(
+            f"Canal:     {config.get('channel_name') or '(sem nome)'} "
+            f"({config.get('channel_id')})"
+        )
+    else:
+        print("Canal:     não configurado")
+    return 0
+
+
+async def set_channel(requested: str | None) -> int:
+    APP_DIR.mkdir(parents=True, exist_ok=True)
+    config: dict[str, Any] = load_json(CONFIG_PATH, {})
+    api_id, api_hash = get_api_credentials(config)
+
+    client = TelegramClient(str(SESSION_BASE), api_id, api_hash)
+    await client.start()
+    try:
+        entity = await resolve_channel(client, requested) if requested else await prompt_channel(client)
+        save_default_channel(config, entity)
+        print(f"Canal padrão definido: {channel_display_name(entity)} ({utils.get_peer_id(entity)})")
+        return 0
+    finally:
+        await client.disconnect()
 
 
 def progress_callback(label: str):
@@ -226,7 +304,11 @@ def progress_callback(label: str):
             state["bucket"] = bucket
             current_mb = current / (1024 * 1024)
             total_mb = total / (1024 * 1024)
-            print(f"\r{label}: {percent:3d}% ({current_mb:.1f}/{total_mb:.1f} MiB)", end="", flush=True)
+            print(
+                f"\r{label}: {percent:3d}% ({current_mb:.1f}/{total_mb:.1f} MiB)",
+                end="",
+                flush=True,
+            )
 
     return callback
 
@@ -280,7 +362,7 @@ async def run(args: argparse.Namespace) -> int:
     try:
         entity = await choose_channel(client, config, args.channel)
         channel_id = utils.get_peer_id(entity)
-        display_name = getattr(entity, "title", None) or getattr(entity, "username", None) or str(channel_id)
+        display_name = channel_display_name(entity)
         print(f"\nDestino: {display_name}")
         print(f"Biblioteca: {library}")
         print(f"Arquivos encontrados: {len(items)}\n")
@@ -297,7 +379,11 @@ async def run(args: argparse.Namespace) -> int:
                 skipped += 1
                 continue
 
-            if item.season is not None and not args.no_season_header and item.season not in announced_this_run:
+            if (
+                item.season is not None
+                and not args.no_season_header
+                and item.season not in announced_this_run
+            ):
                 hkey = header_key(channel_id, library, item.season)
                 if args.force_header or hkey not in state["headers"]:
                     text = f"📺 #S{item.season:02d} — TEMPORADA {item.season}"
@@ -345,6 +431,10 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="tg-upload",
         description="Envia vídeos em lote para um canal do Telegram e gera uma hashtag SxxExx por episódio.",
+        epilog=(
+            "Comandos: tg-upload channel | tg-upload set-channel [@canal|-100...] | "
+            "tg-upload config"
+        ),
     )
     parser.add_argument("path", help="Arquivo ou pasta que será enviada.")
     parser.add_argument("--channel", help="@username, ID ou -100... do canal para esta execução.")
@@ -361,9 +451,31 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main() -> int:
-    parser = build_parser()
-    args = parser.parse_args()
     try:
+        if len(sys.argv) >= 2 and sys.argv[1].lower() in SPECIAL_COMMANDS:
+            command = sys.argv[1].lower()
+
+            if command == "channel":
+                if len(sys.argv) != 2:
+                    print("Uso: tg-upload channel", file=sys.stderr)
+                    return 2
+                return show_channel()
+
+            if command == "config":
+                if len(sys.argv) != 2:
+                    print("Uso: tg-upload config", file=sys.stderr)
+                    return 2
+                return show_config()
+
+            if command == "set-channel":
+                if len(sys.argv) > 3:
+                    print("Uso: tg-upload set-channel [@canal|-100...]", file=sys.stderr)
+                    return 2
+                requested = sys.argv[2] if len(sys.argv) == 3 else None
+                return asyncio.run(set_channel(requested))
+
+        parser = build_parser()
+        args = parser.parse_args()
         return asyncio.run(run(args))
     except KeyboardInterrupt:
         print("\nCancelado.")

@@ -4,7 +4,7 @@ if ($env:OS -ne "Windows_NT") {
     throw "A instalação automática do tg-upload atualmente suporta apenas Windows."
 }
 
-$repo = "sillasHead/telegram-media-upload"
+$repo = "sillasHead/tg-upload"
 $root = Join-Path $env:LOCALAPPDATA "telegram-media-upload"
 $appDir = Join-Path $root "app"
 $binDir = Join-Path $root "bin"
@@ -76,7 +76,7 @@ python "%TG_UPLOAD_APP%" %*
 exit /b %ERRORLEVEL%
 
 :update
-powershell -NoProfile -ExecutionPolicy Bypass -Command "irm https://raw.githubusercontent.com/sillasHead/telegram-media-upload/main/setup.ps1 ^| iex"
+powershell -NoProfile -ExecutionPolicy Bypass -Command "irm https://raw.githubusercontent.com/sillasHead/tg-upload/main/setup.ps1 ^| iex"
 exit /b %ERRORLEVEL%
 '@
     Set-Content -LiteralPath $cmdPath -Value $cmd -Encoding ASCII

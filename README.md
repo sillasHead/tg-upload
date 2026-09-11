@@ -90,6 +90,73 @@ Para usar outro canal somente em uma execução, sem trocar o padrão:
 tg-upload "C:\Videos\Minha Serie" --channel -1001234567890
 ```
 
+
+## Destinos e tópicos
+
+Para uma biblioteca que mistura obras pequenas/médias em tópicos e deixa obras grandes em canais próprios, salve atalhos de destino.
+
+Exemplo para o tópico **Animes** do grupo **Biblioteca**:
+
+```powershell
+tg-upload set-destination anime
+```
+
+O comando lista os canais/grupos da conta e, se o grupo escolhido tiver tópicos, lista também os tópicos disponíveis. Tudo fica salvo apenas no `config.json` local.
+
+Você também pode informar diretamente:
+
+```powershell
+tg-upload set-destination anime --channel -1001234567890 --topic "Animes"
+tg-upload set-destination desenho --channel -1001234567890 --topic "Desenhos"
+tg-upload set-destination filme --channel -1001234567890 --topic "Filmes"
+```
+
+Depois o upload fica simples:
+
+```powershell
+tg-upload "C:\Videos\Kiseijuu" --to anime
+tg-upload "C:\Videos\Bob Esponja" --to desenho
+tg-upload "C:\Videos\Filmes\Meu Filme.mp4" --to filme
+```
+
+Para uma obra grande que tenha canal próprio, use outro atalho sem tópico:
+
+```powershell
+tg-upload set-destination one-piece --channel @meu_canal_onepiece
+tg-upload "C:\Videos\One Piece" --to one-piece
+```
+
+Assim o mesmo programa suporta os dois modelos:
+
+```text
+Biblioteca (supergrupo)
+├─ Animes   <- --to anime
+├─ Desenhos <- --to desenho
+└─ Filmes   <- --to filme
+
+One Piece (canal próprio) <- --to one-piece
+```
+
+Ver os atalhos salvos:
+
+```powershell
+tg-upload destinations
+```
+
+Remover um:
+
+```powershell
+tg-upload remove-destination anime
+```
+
+Também é possível escolher um tópico só para uma execução, sem salvar atalho:
+
+```powershell
+tg-upload "C:\Videos\Kiseijuu" --channel -1001234567890 --topic "Animes"
+```
+
+O histórico diferencia canal **e tópico**. Portanto, enviar o mesmo arquivo para `Biblioteca > Animes` e depois para outro tópico é tratado como dois destinos diferentes.
+
 ## Uso
 
 Antes do primeiro envio real, vale conferir o lote:

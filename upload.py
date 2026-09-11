@@ -12,7 +12,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from telethon import TelegramClient, utils
+from telethon import TelegramClient, functions, utils
 from telethon.errors import FloodWaitError
 
 
@@ -24,7 +24,7 @@ VIDEO_EXTENSIONS = {".mp4", ".mkv", ".mov", ".webm", ".avi", ".m4v"}
 EPISODE_RE = re.compile(r"(?i)\bS(?P<season>\d{1,3})E(?P<episode>\d{1,4})\b")
 QUALITY_RE = re.compile(r"\s*\[(?:\d{3,4}p|4k|8k)\]\s*$", re.IGNORECASE)
 SEASON_DIR_RE = re.compile(r"(?i)^season\s+0*(\d+)$")
-SPECIAL_COMMANDS = {"channel", "set-channel", "config"}
+SPECIAL_COMMANDS = {"channel", "set-channel", "config", "destinations", "set-destination", "remove-destination"}
 
 
 @dataclass(frozen=True)
@@ -40,6 +40,31 @@ class MediaItem:
         if self.code:
             return f"#{self.code} - {self.title}"
         return self.title
+
+
+@dataclass(frozen=True)
+class Destination:
+    entity: Any
+    channel_id: int
+    channel_name: str
+    topic_id: int | None = None
+    topic_name: str | None = None
+    alias: str | None = None
+
+    @property
+    def display_name(self) -> str:
+        if self.topic_name:
+            return f"{self.channel_name} > {self.topic_name}"
+        if self.topic_id is not None:
+            return f"{self.channel_name} > tópico {self.topic_id}"
+        return self.channel_name
+
+
+def normalize_destination_name(value: str) -> str:
+    name = value.strip().lower()
+    if not re.fullmatch(r"[a-z0-9][a-z0-9._-]*", name):
+        raise ValueError("Nome de destino inválido. Use letras minúsculas, números, ponto, _ ou -.")
+    return name
 
 
 def load_json(path: Path, default: Any) -> Any:
@@ -118,15 +143,24 @@ def infer_library_name(target: Path) -> str:
     return base.name or "biblioteca"
 
 
-def upload_key(channel_id: int, library: str, item: MediaItem) -> str:
+def destination_scope(channel_id: int, topic_id: int | None) -> str:
+    # Sem tópico mantém a chave histórica para não reenviar uploads antigos.
+    if topic_id is None:
+        return str(channel_id)
+    return f"{channel_id}|topic:{topic_id}"
+
+
+def upload_key(channel_id: int, topic_id: int | None, library: str, item: MediaItem) -> str:
+    scope = destination_scope(channel_id, topic_id)
     if item.code:
-        return f"{channel_id}|{library}|{item.code}"
+        return f"{scope}|{library}|{item.code}"
     stat = item.path.stat()
-    return f"{channel_id}|{library}|{item.path.resolve()}|{stat.st_size}"
+    return f"{scope}|{library}|{item.path.resolve()}|{stat.st_size}"
 
 
-def header_key(channel_id: int, library: str, season: int) -> str:
-    return f"{channel_id}|{library}|S{season:02d}"
+def header_key(channel_id: int, topic_id: int | None, library: str, season: int) -> str:
+    scope = destination_scope(channel_id, topic_id)
+    return f"{scope}|{library}|S{season:02d}"
 
 
 def print_plan(items: list[MediaItem]) -> None:
@@ -207,6 +241,92 @@ async def prompt_channel(client: TelegramClient):
         print("Opção inválida.")
 
 
+async def get_forum_topics(client: TelegramClient, entity) -> list[Any]:
+    if not getattr(entity, "forum", False):
+        return []
+
+    messages_request = getattr(functions.messages, "GetForumTopicsRequest", None)
+    channels_request = getattr(functions.channels, "GetForumTopicsRequest", None)
+    if messages_request is not None:
+        request = messages_request(
+            peer=entity,
+            q="",
+            offset_date=0,
+            offset_id=0,
+            offset_topic=0,
+            limit=100,
+        )
+    elif channels_request is not None:
+        request = channels_request(
+            channel=entity,
+            q="",
+            offset_date=0,
+            offset_id=0,
+            offset_topic=0,
+            limit=100,
+        )
+    else:
+        raise RuntimeError("Esta versão do Telethon não oferece suporte à listagem de tópicos.")
+
+    result = await client(request)
+    topics = list(getattr(result, "topics", []) or [])
+    topics.sort(key=lambda topic: int(getattr(topic, "id", 0)))
+    return topics
+
+
+def topic_display_name(topic) -> str:
+    return str(getattr(topic, "title", None) or f"tópico {getattr(topic, 'id', '?')}")
+
+
+async def resolve_topic(client: TelegramClient, entity, requested: str | None) -> tuple[int | None, str | None]:
+    if requested is None:
+        return None, None
+    if not getattr(entity, "forum", False):
+        raise ValueError("O destino escolhido não é um grupo com tópicos.")
+
+    value = requested.strip()
+    if value.lower() in {"general", "geral", "none", "sem-topico", "sem-tópico"}:
+        return None, "Geral"
+
+    topics = await get_forum_topics(client, entity)
+    if re.fullmatch(r"\d+", value):
+        topic_id = int(value)
+        match = next((topic for topic in topics if int(getattr(topic, "id", -1)) == topic_id), None)
+        return topic_id, topic_display_name(match) if match else f"tópico {topic_id}"
+
+    exact = [topic for topic in topics if topic_display_name(topic).casefold() == value.casefold()]
+    if len(exact) == 1:
+        return int(exact[0].id), topic_display_name(exact[0])
+
+    partial = [topic for topic in topics if value.casefold() in topic_display_name(topic).casefold()]
+    if len(partial) == 1:
+        return int(partial[0].id), topic_display_name(partial[0])
+    if len(partial) > 1:
+        names = ", ".join(topic_display_name(topic) for topic in partial)
+        raise ValueError(f"Tópico ambíguo: {requested}. Correspondências: {names}")
+    raise ValueError(f"Tópico não encontrado: {requested}")
+
+
+async def prompt_topic(client: TelegramClient, entity) -> tuple[int | None, str | None]:
+    if not getattr(entity, "forum", False):
+        return None, None
+
+    topics = await get_forum_topics(client, entity)
+    print("\nEscolha o tópico de destino:")
+    print("  0. Geral")
+    for index, topic in enumerate(topics, start=1):
+        print(f"  {index}. {topic_display_name(topic)} (ID {topic.id})")
+
+    while True:
+        choice = input("Número do tópico [0]: ").strip() or "0"
+        if choice == "0":
+            return None, "Geral"
+        if choice.isdigit() and 1 <= int(choice) <= len(topics):
+            topic = topics[int(choice) - 1]
+            return int(topic.id), topic_display_name(topic)
+        print("Opção inválida.")
+
+
 async def resolve_channel(client: TelegramClient, requested: str):
     candidate: str | int = requested
     if re.fullmatch(r"-?\d+", requested):
@@ -232,6 +352,41 @@ async def choose_channel(client: TelegramClient, config: dict[str, Any], request
     entity = await prompt_channel(client)
     save_default_channel(config, entity)
     return entity
+
+
+async def choose_destination(
+    client: TelegramClient,
+    config: dict[str, Any],
+    alias: str | None,
+    requested_channel: str | None,
+    requested_topic: str | None,
+) -> Destination:
+    if alias:
+        if requested_channel or requested_topic:
+            raise ValueError("Use --to sozinho; não combine com --channel/--topic.")
+        key = normalize_destination_name(alias)
+        entry = (config.get("destinations") or {}).get(key)
+        if not entry:
+            raise ValueError(f"Destino '{key}' não configurado. Use: tg-upload set-destination {key}")
+        entity = await client.get_entity(int(entry["channel_id"]))
+        return Destination(
+            entity=entity,
+            channel_id=utils.get_peer_id(entity),
+            channel_name=str(entry.get("channel_name") or channel_display_name(entity)),
+            topic_id=int(entry["topic_id"]) if entry.get("topic_id") is not None else None,
+            topic_name=entry.get("topic_name"),
+            alias=key,
+        )
+
+    entity = await choose_channel(client, config, requested_channel)
+    topic_id, topic_name = await resolve_topic(client, entity, requested_topic) if requested_topic else (None, None)
+    return Destination(
+        entity=entity,
+        channel_id=utils.get_peer_id(entity),
+        channel_name=channel_display_name(entity),
+        topic_id=topic_id,
+        topic_name=topic_name,
+    )
 
 
 def show_channel() -> int:
@@ -273,6 +428,9 @@ def show_config() -> int:
         )
     else:
         print("Canal:     não configurado")
+
+    destinations = config.get("destinations") or {}
+    print(f"Destinos:  {len(destinations)} configurado(s)")
     return 0
 
 
@@ -290,6 +448,81 @@ async def set_channel(requested: str | None) -> int:
         return 0
     finally:
         await client.disconnect()
+
+
+def show_destinations() -> int:
+    config: dict[str, Any] = load_json(CONFIG_PATH, {})
+    destinations = config.get("destinations") or {}
+    if not destinations:
+        print("Nenhum destino configurado.")
+        print("Use: tg-upload set-destination anime")
+        return 0
+
+    print("Destinos configurados:")
+    for alias in sorted(destinations):
+        entry = destinations[alias]
+        channel_name = entry.get("channel_name") or str(entry.get("channel_id"))
+        topic_name = entry.get("topic_name")
+        topic_id = entry.get("topic_id")
+        if topic_name:
+            location = f"{channel_name} > {topic_name}"
+        elif topic_id is not None:
+            location = f"{channel_name} > tópico {topic_id}"
+        else:
+            location = channel_name
+        print(f"  {alias:<16} {location}")
+    return 0
+
+
+async def set_destination(name: str, requested_channel: str | None, requested_topic: str | None) -> int:
+    APP_DIR.mkdir(parents=True, exist_ok=True)
+    config: dict[str, Any] = load_json(CONFIG_PATH, {})
+    api_id, api_hash = get_api_credentials(config)
+    alias = normalize_destination_name(name)
+
+    client = TelegramClient(str(SESSION_BASE), api_id, api_hash)
+    await client.start()
+    try:
+        entity = await resolve_channel(client, requested_channel) if requested_channel else await prompt_channel(client)
+        if requested_topic is not None:
+            topic_id, topic_name = await resolve_topic(client, entity, requested_topic)
+        else:
+            topic_id, topic_name = await prompt_topic(client, entity)
+
+        destinations = config.setdefault("destinations", {})
+        destinations[alias] = {
+            "channel_id": utils.get_peer_id(entity),
+            "channel_name": channel_display_name(entity),
+            "topic_id": topic_id,
+            "topic_name": topic_name,
+        }
+        save_json(CONFIG_PATH, config)
+        destination = Destination(
+            entity=entity,
+            channel_id=utils.get_peer_id(entity),
+            channel_name=channel_display_name(entity),
+            topic_id=topic_id,
+            topic_name=topic_name,
+            alias=alias,
+        )
+        print(f"Destino '{alias}' definido: {destination.display_name}")
+        return 0
+    finally:
+        await client.disconnect()
+
+
+def remove_destination(name: str) -> int:
+    config: dict[str, Any] = load_json(CONFIG_PATH, {})
+    alias = normalize_destination_name(name)
+    destinations = config.get("destinations") or {}
+    if alias not in destinations:
+        print(f"Destino '{alias}' não existe.")
+        return 1
+    del destinations[alias]
+    config["destinations"] = destinations
+    save_json(CONFIG_PATH, config)
+    print(f"Destino '{alias}' removido.")
+    return 0
 
 
 def progress_callback(label: str):
@@ -313,7 +546,7 @@ def progress_callback(label: str):
     return callback
 
 
-async def send_media(client: TelegramClient, entity, item: MediaItem, as_document: bool) -> None:
+async def send_media(client: TelegramClient, entity, item: MediaItem, as_document: bool, topic_id: int | None = None) -> None:
     label = item.code or item.path.name
     for attempt in range(2):
         try:
@@ -323,6 +556,7 @@ async def send_media(client: TelegramClient, entity, item: MediaItem, as_documen
                 caption=item.caption,
                 force_document=as_document,
                 supports_streaming=not as_document,
+                reply_to=topic_id,
                 progress_callback=progress_callback(label),
             )
             print()
@@ -360,10 +594,13 @@ async def run(args: argparse.Namespace) -> int:
     await client.start()
 
     try:
-        entity = await choose_channel(client, config, args.channel)
-        channel_id = utils.get_peer_id(entity)
-        display_name = channel_display_name(entity)
-        print(f"\nDestino: {display_name}")
+        destination = await choose_destination(client, config, args.to, args.channel, args.topic)
+        entity = destination.entity
+        channel_id = destination.channel_id
+        topic_id = destination.topic_id
+        print(f"\nDestino: {destination.display_name}")
+        if destination.alias:
+            print(f"Atalho: {destination.alias}")
         print(f"Biblioteca: {library}")
         print(f"Arquivos encontrados: {len(items)}\n")
 
@@ -373,7 +610,7 @@ async def run(args: argparse.Namespace) -> int:
         announced_this_run: set[int] = set()
 
         for item in items:
-            key = upload_key(channel_id, library, item)
+            key = upload_key(channel_id, topic_id, library, item)
             if not args.force and key in state["uploads"]:
                 print(f"Pulado: {item.path.name}")
                 skipped += 1
@@ -384,10 +621,10 @@ async def run(args: argparse.Namespace) -> int:
                 and not args.no_season_header
                 and item.season not in announced_this_run
             ):
-                hkey = header_key(channel_id, library, item.season)
+                hkey = header_key(channel_id, topic_id, library, item.season)
                 if args.force_header or hkey not in state["headers"]:
                     text = f"📺 #S{item.season:02d} — TEMPORADA {item.season}"
-                    await client.send_message(entity, text)
+                    await client.send_message(entity, text, reply_to=topic_id)
                     state["headers"][hkey] = {
                         "sent_at": int(time.time()),
                         "text": text,
@@ -397,7 +634,7 @@ async def run(args: argparse.Namespace) -> int:
 
             print(f"Enviando: {item.path.name}")
             try:
-                await send_media(client, entity, item, as_document=args.document)
+                await send_media(client, entity, item, as_document=args.document, topic_id=topic_id)
             except Exception as exc:
                 failed += 1
                 print(f"Falhou: {item.path.name}\n  {exc}", file=sys.stderr)
@@ -433,11 +670,13 @@ def build_parser() -> argparse.ArgumentParser:
         description="Envia vídeos em lote para um canal do Telegram e gera uma hashtag SxxExx por episódio.",
         epilog=(
             "Comandos: tg-upload channel | tg-upload set-channel [@canal|-100...] | "
-            "tg-upload config"
+            "tg-upload destinations | tg-upload set-destination NOME | tg-upload config"
         ),
     )
     parser.add_argument("path", help="Arquivo ou pasta que será enviada.")
-    parser.add_argument("--channel", help="@username, ID ou -100... do canal para esta execução.")
+    parser.add_argument("--channel", help="@username, ID ou -100... do canal/grupo para esta execução.")
+    parser.add_argument("--topic", help="Nome ou ID do tópico para esta execução (requer grupo com tópicos).")
+    parser.add_argument("--to", help="Atalho de destino salvo, por exemplo: anime, desenho, filme ou one-piece.")
     parser.add_argument("--library", help="Nome da biblioteca/série usado no estado local.")
     parser.add_argument("--dry-run", action="store_true", help="Mostra arquivos e legendas sem conectar ao Telegram.")
     parser.add_argument("--force", action="store_true", help="Reenvia episódios já registrados no estado local.")
@@ -473,6 +712,26 @@ def main() -> int:
                     return 2
                 requested = sys.argv[2] if len(sys.argv) == 3 else None
                 return asyncio.run(set_channel(requested))
+
+            if command == "destinations":
+                if len(sys.argv) != 2:
+                    print("Uso: tg-upload destinations", file=sys.stderr)
+                    return 2
+                return show_destinations()
+
+            if command == "remove-destination":
+                if len(sys.argv) != 3:
+                    print("Uso: tg-upload remove-destination NOME", file=sys.stderr)
+                    return 2
+                return remove_destination(sys.argv[2])
+
+            if command == "set-destination":
+                destination_parser = argparse.ArgumentParser(prog="tg-upload set-destination")
+                destination_parser.add_argument("name", help="Atalho do destino, ex.: anime ou one-piece.")
+                destination_parser.add_argument("--channel", help="@username ou ID. Se omitido, pergunta interativamente.")
+                destination_parser.add_argument("--topic", help="Nome ou ID do tópico. Se omitido em fórum, pergunta interativamente.")
+                options = destination_parser.parse_args(sys.argv[2:])
+                return asyncio.run(set_destination(options.name, options.channel, options.topic))
 
         parser = build_parser()
         args = parser.parse_args()

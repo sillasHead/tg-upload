@@ -1,0 +1,10 @@
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.env
+*.session
+*.session-journal
+config.json
+state.json
+.telegram-media-upload/

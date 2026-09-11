@@ -1,4 +1,4 @@
-# telegram-media-upload
+# tg-upload
 
 Uploader em lote para canais do Telegram usando Telethon.
 
@@ -15,7 +15,7 @@ O uploader ordena os arquivos por temporada/episódio e gera automaticamente uma
 #S01E01 - Bolhas de sabão + Calça rasgada
 ```
 
-Também pode criar uma mensagem separadora quando começa uma temporada:
+Ao mudar de temporada, ele também pode criar automaticamente um separador:
 
 ```text
 📺 #S01 — TEMPORADA 1
@@ -25,10 +25,10 @@ Também pode criar uma mensagem separadora quando começa uma temporada:
 
 Requer Windows e Python 3.10+.
 
-Depois que o repositório estiver público, a instalação pode ser feita diretamente pelo PowerShell:
+Abra o PowerShell e rode:
 
 ```powershell
-irm https://raw.githubusercontent.com/sillasHead/telegram-media-upload/main/setup.ps1 | iex
+irm https://raw.githubusercontent.com/sillasHead/tg-upload/main/setup.ps1 | iex
 ```
 
 O instalador adiciona `tg-upload` ao PATH do usuário. Depois, em qualquer terminal:
@@ -55,19 +55,74 @@ A sessão do Telethon e o histórico de uploads também ficam nessa pasta.
 
 Para obter `api_id` e `api_hash`, use `my.telegram.org` > **API development tools**.
 
+Na primeira vez em que não houver canal padrão configurado, o programa lista os canais/grupos disponíveis na sua conta e pede que você escolha um. A escolha fica salva apenas localmente.
+
+## Canal padrão
+
+Ver o canal padrão atual:
+
+```powershell
+tg-upload channel
+```
+
+Escolher outro canal padrão interativamente:
+
+```powershell
+tg-upload set-channel
+```
+
+Ou definir diretamente por username/ID:
+
+```powershell
+tg-upload set-channel @meucanal
+tg-upload set-channel -1001234567890
+```
+
+Ver os caminhos e o estado da configuração sem exibir o `api_hash`:
+
+```powershell
+tg-upload config
+```
+
+Para usar outro canal somente em uma execução, sem trocar o padrão:
+
+```powershell
+tg-upload "C:\Videos\Minha Serie" --channel -1001234567890
+```
+
 ## Uso
 
 Antes do primeiro envio real, vale conferir o lote:
 
 ```powershell
-tg-upload "C:\Videos\Minha Serie\Season 01" --dry-run
+tg-upload "C:\Videos\Minha Serie" --dry-run
 ```
 
-Enviar a temporada inteira:
+Enviar uma temporada inteira:
 
 ```powershell
 tg-upload "C:\Videos\Minha Serie\Season 01"
 ```
+
+Enviar a série inteira, procurando vídeos recursivamente nas subpastas:
+
+```powershell
+tg-upload "C:\Videos\Minha Serie"
+```
+
+Exemplo de estrutura:
+
+```text
+Minha Serie\
+├─ Season 01\
+│  ├─ S01E01 - Título.mp4
+│  └─ S01E02 - Título.mp4
+├─ Season 02\
+│  ├─ S02E01 - Título.mp4
+│  └─ S02E02 - Título.mp4
+```
+
+Os arquivos são ordenados por temporada e episódio. Antes do primeiro episódio de cada temporada, o `tg-upload` publica o separador correspondente, a menos que seja usado `--no-season-header`.
 
 Enviar novamente arquivos que já constam no estado local:
 
@@ -85,12 +140,6 @@ Não publicar separadores de temporada:
 
 ```powershell
 tg-upload "C:\Videos\Minha Serie\Season 01" --no-season-header
-```
-
-Escolher outro canal apenas nessa execução:
-
-```powershell
-tg-upload "C:\Videos\Minha Serie\Season 01" --channel -1001234567890
 ```
 
 ## Organização

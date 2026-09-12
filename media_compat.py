@@ -358,6 +358,13 @@ def _build_ffmpeg_command(
         command.extend(["-c:v", "copy"])
 
     command.extend(["-c:a", "copy", "-c:s", "copy", "-c:t", "copy", "-c:d", "copy"])
+    for position in range(len(plan.selected_audios)):
+        command.extend(
+            [
+                f"-disposition:a:{position}",
+                "default" if position == 0 else "0",
+            ]
+        )
     for position in plan.transcode_audio_positions:
         command.extend(
             [
@@ -388,7 +395,7 @@ def prepare_for_telegram(plan: CompatibilityPlan) -> PreparedMedia:
 
     encoder = choose_h264_encoder(ffmpeg) if plan.transcode_video else "copy"
     tempdir = tempfile.TemporaryDirectory(prefix="tg-upload-compat-")
-    output = Path(tempdir.name) / f"{plan.source.stem}.telegram.mkv"
+    output = Path(tempdir.name) / plan.source.name
     command = _build_ffmpeg_command(plan, output, ffmpeg, encoder)
 
     try:

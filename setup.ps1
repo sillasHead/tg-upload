@@ -16,6 +16,11 @@ function Ensure-Directory([string]$PathValue) {
     }
 }
 
+function Normalize-Text([string]$Value) {
+    if ($null -eq $Value) { return "" }
+    return (($Value -replace "`r`n", "`n").TrimEnd())
+}
+
 try {
     Write-Host "Instalando tg-upload..." -ForegroundColor Cyan
     Ensure-Directory $tempDir
@@ -79,7 +84,23 @@ exit /b %ERRORLEVEL%
 powershell -NoProfile -ExecutionPolicy Bypass -Command "irm https://raw.githubusercontent.com/sillasHead/tg-upload/main/setup.ps1 ^| iex"
 exit /b %ERRORLEVEL%
 '@
-    Set-Content -LiteralPath $cmdPath -Value $cmd -Encoding ASCII
+
+    # Durante `tg-upload update`, este .cmd é justamente o arquivo que está em execução.
+    # O Windows pode bloquear a regravação dele. Se o conteúdo já for o mesmo, não há
+    # motivo para tocá-lo. Isso mantém o bootstrap estável e evita "Access is denied".
+    $existingCmd = $null
+    if (Test-Path -LiteralPath $cmdPath -PathType Leaf) {
+        try { $existingCmd = Get-Content -LiteralPath $cmdPath -Raw -ErrorAction Stop } catch { }
+    }
+
+    if ((Normalize-Text $existingCmd) -ne (Normalize-Text $cmd)) {
+        try {
+            Set-Content -LiteralPath $cmdPath -Value $cmd -Encoding ASCII -ErrorAction Stop
+        }
+        catch {
+            Write-Warning "Não foi possível atualizar o atalho tg-upload.cmd porque ele está em uso. O aplicativo foi atualizado; o atalho atual continua válido."
+        }
+    }
 
     $userPath = [Environment]::GetEnvironmentVariable("Path", "User")
     $parts = @()

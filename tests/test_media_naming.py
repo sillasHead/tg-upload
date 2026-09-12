@@ -1,38 +1,47 @@
 from pathlib import Path
 
-import upload
+import launcher
 
 
-def test_episode_code_at_end_is_removed_from_title():
-    item = upload.parse_media(Path("Parasyte - The Maxim - S01E06.mkv"))
+def parasyte(name: str) -> Path:
+    return Path("Parasyte - The Maxim") / name
+
+
+def test_episode_code_at_end_becomes_clean_caption():
+    item = launcher._smart_parse_media(parasyte("Parasyte - The Maxim - S01E06.mkv"))
     assert item.code == "S01E06"
     assert item.season == 1
     assert item.episode == 6
-    assert item.title == "Parasyte - The Maxim"
+    assert item.title == ""
+    assert launcher._smart_caption(item) == "#S01E06"
 
 
 def test_episode_code_at_start_keeps_episode_title():
-    item = upload.parse_media(Path("S01E02 - Bolhas de sabão _ Calça rasgada [720p].mp4"))
+    path = Path("Bob Esponja Calça Quadrada") / "S01E02 - Bolhas de sabão _ Calça rasgada [720p].mp4"
+    item = launcher._smart_parse_media(path)
     assert item.code == "S01E02"
     assert item.title == "Bolhas de sabão + Calça rasgada"
+    assert launcher._smart_caption(item) == "#S01E02 - Bolhas de sabão + Calça rasgada"
 
 
-def test_episode_code_in_middle_preserves_both_sides():
-    item = upload.parse_media(Path("Parasyte - The Maxim - S01E06 - Metamorphosis.mkv"))
+def test_episode_code_in_middle_removes_redundant_series_prefix():
+    item = launcher._smart_parse_media(
+        parasyte("Parasyte - The Maxim - S01E06 - Metamorphosis.mkv")
+    )
     assert item.code == "S01E06"
-    assert item.title == "Parasyte - The Maxim - Metamorphosis"
+    assert item.title == "Metamorphosis"
+    assert launcher._smart_caption(item) == "#S01E06 - Metamorphosis"
 
 
-def test_caption_omits_redundant_library_title():
-    item = upload.parse_media(Path("Parasyte - The Maxim - S01E06.mkv"))
-    assert item.caption_for("Parasyte - The Maxim") == "#S01E06"
+def test_season_folder_uses_parent_series_as_library():
+    path = Path("Parasyte - The Maxim") / "Season 01" / "Parasyte - The Maxim - S01E07.mkv"
+    item = launcher._smart_parse_media(path)
+    assert item.title == ""
+    assert launcher._smart_caption(item) == "#S01E07"
 
 
-def test_caption_removes_library_prefix_when_episode_has_title():
-    item = upload.parse_media(Path("Parasyte - The Maxim - S01E06 - Metamorphosis.mkv"))
-    assert item.caption_for("Parasyte - The Maxim") == "#S01E06 - Metamorphosis"
-
-
-def test_caption_keeps_real_episode_title():
-    item = upload.parse_media(Path("S01E02 - Bolhas de sabão _ Calça rasgada [720p].mp4"))
-    assert item.caption_for("Bob Esponja Calça Quadrada") == "#S01E02 - Bolhas de sabão + Calça rasgada"
+def test_unrelated_title_is_not_removed():
+    path = Path("Anime") / "S01E03 - A chegada.mkv"
+    item = launcher._smart_parse_media(path)
+    assert item.title == "A chegada"
+    assert launcher._smart_caption(item) == "#S01E03 - A chegada"

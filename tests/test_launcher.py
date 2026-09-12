@@ -28,11 +28,11 @@ class LauncherTests(unittest.TestCase):
     def test_streaming_flag_depends_on_container(self):
         self.assertTrue(launcher._supports_streaming(Path("episode.mp4"), False))
         self.assertTrue(launcher._supports_streaming(Path("episode.m4v"), False))
-        self.assertFalse(launcher._supports_streaming(Path("episode.mkv"), False))
+        self.assertTrue(launcher._supports_streaming(Path("episode.mkv"), False))
         self.assertFalse(launcher._supports_streaming(Path("episode.avi"), False))
         self.assertFalse(launcher._supports_streaming(Path("episode.mp4"), True))
 
-    def test_mkv_uses_ffprobe_metadata_without_streaming_flag(self):
+    def test_mkv_uses_ffprobe_metadata_and_streaming_flag(self):
         initial = [types.DocumentAttributeFilename("episode.mkv")]
         with (
             patch.object(
@@ -56,11 +56,16 @@ class LauncherTests(unittest.TestCase):
             if isinstance(attribute, types.DocumentAttributeVideo)
         )
         self.assertEqual(mime_type, "video/x-matroska")
-        self.assertFalse(supports_streaming)
-        self.assertFalse(video.supports_streaming)
+        self.assertTrue(supports_streaming)
+        self.assertTrue(video.supports_streaming)
         self.assertEqual(video.w, 1920)
         self.assertEqual(video.h, 1072)
         self.assertEqual(video.duration, 1380)
+
+    def test_audio_languages_parser_accepts_string_and_list(self):
+        self.assertEqual(launcher._parse_audio_languages("por,jpn"), ("por", "jpn"))
+        self.assertEqual(launcher._parse_audio_languages(["POR", " jpn "]), ("por", "jpn"))
+        self.assertEqual(launcher._parse_audio_languages(None), ())
 
 
 if __name__ == "__main__":

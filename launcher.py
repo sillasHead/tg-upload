@@ -13,6 +13,7 @@ from InquirerPy.base.control import Choice
 from telethon import types
 
 import fast_upload
+import media_compat
 import upload
 
 
@@ -20,7 +21,10 @@ SEASON_DIR_RE = re.compile(r"(?i)^season\s+0*(\d+)$")
 QUALITY_ONLY_RE = re.compile(r"(?i)^\[(?:\d{3,4}p|4k|8k)\]$")
 STREAMABLE_EXTENSIONS = {".mp4", ".m4v", ".mov"}
 DEFAULT_UPLOAD_WORKERS = 4
+DEFAULT_PLAYBACK_FIX = "auto"
 _ACTIVE_UPLOAD_WORKERS = DEFAULT_UPLOAD_WORKERS
+_ACTIVE_PLAYBACK_FIX = DEFAULT_PLAYBACK_FIX
+_ACTIVE_AUDIO_LANGUAGES: tuple[str, ...] = ()
 _ORIGINAL_BUILD_PARSER = upload.build_parser
 _ORIGINAL_RUN = upload.run
 
@@ -126,6 +130,40 @@ def _resolve_upload_workers(args) -> int:
     return fast_upload.validate_workers(int(requested))
 
 
+def _resolve_playback_fix(args) -> str:
+    requested = getattr(args, "playback_fix", None)
+    if requested is None:
+        requested = os.getenv("TG_PLAYBACK_FIX")
+    if requested is None:
+        config = upload.load_json(upload.CONFIG_PATH, {})
+        requested = config.get("playback_fix", DEFAULT_PLAYBACK_FIX)
+
+    value = str(requested).strip().casefold()
+    if value not in {"auto", "off"}:
+        raise ValueError("playback_fix inválido. Use 'auto' ou 'off'.")
+    return value
+
+
+def _parse_audio_languages(value) -> tuple[str, ...]:
+    if value is None:
+        return ()
+    if isinstance(value, (list, tuple)):
+        parts = [str(item) for item in value]
+    else:
+        parts = str(value).split(",")
+    return tuple(part.strip().casefold() for part in parts if part.strip())
+
+
+def _resolve_audio_languages(args) -> tuple[str, ...]:
+    requested = getattr(args, "audio_languages", None)
+    if requested is None:
+        requested = os.getenv("TG_AUDIO_LANGUAGES")
+    if requested is None:
+        config = upload.load_json(upload.CONFIG_PATH, {})
+        requested = config.get("audio_languages")
+    return _parse_audio_languages(requested)
+
+
 def _build_parser():
     parser = _ORIGINAL_BUILD_PARSER()
     parser.add_argument(
@@ -135,12 +173,32 @@ def _build_parser():
         metavar="N",
         help="Uploads paralelos por arquivo (1-8, padrão: 4; 1 usa o modo compatível).",
     )
+    parser.add_argument(
+        "--playback-fix",
+        choices=("auto", "off"),
+        default=None,
+        help=(
+            "Compatibilidade automática de MKV para o player do Telegram "
+            "(padrão: auto; use off para enviar o arquivo original sem ajustes)."
+        ),
+    )
+    parser.add_argument(
+        "--audio-languages",
+        default=None,
+        metavar="LANGS",
+        help=(
+            "Prioridade das faixas de áudio quando um MKV tem mais de duas, "
+            "ex.: por,jpn. Sem opção, preserva a faixa padrão e depois a ordem original."
+        ),
+    )
     return parser
 
 
 async def _run(args) -> int:
-    global _ACTIVE_UPLOAD_WORKERS
+    global _ACTIVE_UPLOAD_WORKERS, _ACTIVE_PLAYBACK_FIX, _ACTIVE_AUDIO_LANGUAGES
     _ACTIVE_UPLOAD_WORKERS = _resolve_upload_workers(args)
+    _ACTIVE_PLAYBACK_FIX = _resolve_playback_fix(args)
+    _ACTIVE_AUDIO_LANGUAGES = _resolve_audio_languages(args)
     return await _ORIGINAL_RUN(args)
 
 
@@ -223,6 +281,46 @@ def _media_attributes(path: Path, as_document: bool):
     return attributes, mime_type, supports_streaming
 
 
+def _replacement_item(item: upload.MediaItem, path: Path) -> upload.MediaItem:
+    return upload.MediaItem(
+        path=path,
+        season=item.season,
+        episode=item.episode,
+        code=item.code,
+        title=item.title,
+    )
+
+
+def _prepare_playable_item(
+    item: upload.MediaItem,
+    as_document: bool,
+) -> tuple[upload.MediaItem, media_compat.PreparedMedia | None]:
+    if (
+        as_document
+        or _ACTIVE_PLAYBACK_FIX == "off"
+        or item.path.suffix.casefold() != ".mkv"
+    ):
+        return item, None
+
+    try:
+        plan = media_compat.analyze_for_telegram(
+            item.path,
+            preferred_languages=_ACTIVE_AUDIO_LANGUAGES,
+        )
+    except RuntimeError as exc:
+        print(f"Compatibilidade Telegram: análise ignorada ({exc})")
+        return item, None
+
+    if plan is None or not plan.needs_conversion:
+        return item, None
+
+    for line in media_compat.describe_plan(plan):
+        print(line)
+
+    prepared = media_compat.prepare_for_telegram(plan)
+    return _replacement_item(item, prepared.path), prepared
+
+
 async def _send_compatible(client, entity, item, as_document: bool, topic_id: int | None, reporter) -> None:
     attributes, mime_type, supports_streaming = _media_attributes(item.path, as_document)
     await client.send_file(
@@ -261,37 +359,42 @@ async def _send_fast(client, entity, item, as_document: bool, topic_id: int | No
 
 
 async def _send_media(client, entity, item, as_document: bool, topic_id: int | None = None) -> None:
+    send_item, prepared = _prepare_playable_item(item, as_document)
     label = item.code or item.path.name
     use_fast = _ACTIVE_UPLOAD_WORKERS > 1
 
-    for attempt in range(2):
-        reporter = fast_upload.ProgressReporter(label)
-        try:
-            if use_fast:
-                try:
-                    await _send_fast(client, entity, item, as_document, topic_id, reporter)
-                    return
-                except upload.FloodWaitError:
-                    print()
-                    raise
-                except Exception as exc:
-                    print()
-                    print(
-                        f"Upload rápido falhou ({exc.__class__.__name__}: {exc}). "
-                        "Tentando modo compatível..."
-                    )
-                    use_fast = False
+    try:
+        for attempt in range(2):
+            reporter = fast_upload.ProgressReporter(label)
+            try:
+                if use_fast:
+                    try:
+                        await _send_fast(client, entity, send_item, as_document, topic_id, reporter)
+                        return
+                    except upload.FloodWaitError:
+                        print()
+                        raise
+                    except Exception as exc:
+                        print()
+                        print(
+                            f"Upload rápido falhou ({exc.__class__.__name__}: {exc}). "
+                            "Tentando modo compatível..."
+                        )
+                        use_fast = False
 
-            await _send_compatible(client, entity, item, as_document, topic_id, reporter)
-            print()
-            return
-        except upload.FloodWaitError as exc:
-            if attempt == 1:
-                raise
-            wait = int(exc.seconds) + 1
-            print(f"\nTelegram pediu espera de {wait}s. Aguardando e reduzindo para o modo compatível...")
-            await asyncio.sleep(wait)
-            use_fast = False
+                await _send_compatible(client, entity, send_item, as_document, topic_id, reporter)
+                print()
+                return
+            except upload.FloodWaitError as exc:
+                if attempt == 1:
+                    raise
+                wait = int(exc.seconds) + 1
+                print(f"\nTelegram pediu espera de {wait}s. Aguardando e reduzindo para o modo compatível...")
+                await asyncio.sleep(wait)
+                use_fast = False
+    finally:
+        if prepared is not None:
+            prepared.cleanup()
 
 
 async def prompt_channel(client):

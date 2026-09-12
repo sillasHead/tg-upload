@@ -121,6 +121,8 @@ class MediaCompatTests(unittest.TestCase):
         self.assertIn("-map_chapters 0", joined)
         self.assertIn("-c:v h264_nvenc", joined)
         self.assertIn("-c:a:0 aac", joined)
+        self.assertIn("-disposition:a:0 default", joined)
+        self.assertIn("-disposition:a:1 0", joined)
 
     def test_non_mkv_is_not_modified(self):
         video = stream(0, "video", "hevc", profile="Main 10", pix_fmt="yuv420p10le")

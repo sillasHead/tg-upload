@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import asyncio
-
 from InquirerPy import inquirer
 from InquirerPy.base.control import Choice
 
@@ -25,14 +23,14 @@ async def prompt_channel(client):
 
     choices = [Choice(value=dialog.entity, name=_channel_label(dialog)) for dialog in dialogs]
     print("\nDigite para pesquisar. Use ↑/↓ para navegar e Enter para selecionar.")
-    return inquirer.fuzzy(
+    return await inquirer.fuzzy(
         message="Canal de destino:",
         choices=choices,
         max_height="70%",
         border=True,
         info=True,
         match_exact=False,
-    ).execute()
+    ).execute_async()
 
 
 async def prompt_topic(client, entity):
@@ -50,14 +48,14 @@ async def prompt_topic(client, entity):
     )
 
     print("\nDigite para pesquisar. Use ↑/↓ para navegar e Enter para selecionar.")
-    return inquirer.fuzzy(
+    return await inquirer.fuzzy(
         message="Tópico de destino:",
         choices=choices,
         max_height="70%",
         border=True,
         info=True,
         match_exact=False,
-    ).execute()
+    ).execute_async()
 
 
 def main() -> int:

@@ -25,7 +25,7 @@ try {
     Write-Host "Instalando tg-upload..." -ForegroundColor Cyan
     Ensure-Directory $tempDir
 
-    foreach ($name in @("upload.py", "launcher.py", "fast_upload.py", "requirements.txt")) {
+    foreach ($name in @("upload.py", "launcher.py", "fast_upload.py", "media_compat.py", "requirements.txt")) {
         $url = "https://raw.githubusercontent.com/$repo/main/$name"
         $target = Join-Path $tempDir $name
         Invoke-WebRequest -Uri $url -OutFile $target -UseBasicParsing
@@ -55,6 +55,7 @@ try {
     Copy-Item -LiteralPath (Join-Path $tempDir "upload.py") -Destination (Join-Path $appDir "upload.py") -Force
     Copy-Item -LiteralPath (Join-Path $tempDir "launcher.py") -Destination (Join-Path $appDir "launcher.py") -Force
     Copy-Item -LiteralPath (Join-Path $tempDir "fast_upload.py") -Destination (Join-Path $appDir "fast_upload.py") -Force
+    Copy-Item -LiteralPath (Join-Path $tempDir "media_compat.py") -Destination (Join-Path $appDir "media_compat.py") -Force
     Copy-Item -LiteralPath (Join-Path $tempDir "requirements.txt") -Destination (Join-Path $appDir "requirements.txt") -Force
 
     $cmdPath = Join-Path $binDir "tg-upload.cmd"
@@ -126,6 +127,11 @@ exit /b %TG_UPLOAD_EXIT%
     Write-Host ""
     Write-Host "tg-upload instalado." -ForegroundColor Green
     Write-Host "Credenciais, sessão e histórico ficam apenas em %USERPROFILE%\.telegram-media-upload."
+
+    if (-not (Get-Command ffmpeg -ErrorAction SilentlyContinue) -or -not (Get-Command ffprobe -ErrorAction SilentlyContinue)) {
+        Write-Warning "FFmpeg/ffprobe não foram encontrados no PATH. Uploads continuam funcionando, mas o ajuste automático de compatibilidade de MKV pode não ser aplicado."
+    }
+
     Write-Host ""
     Write-Host "Teste agora com:" -ForegroundColor Cyan
     Write-Host '  tg-upload "C:\caminho\Season 01" --dry-run'

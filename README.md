@@ -9,10 +9,10 @@ S01E01 - Bolhas de sabão + Calça rasgada [720p].mp4
 S01E02 - Vizinhos náuticos terríveis + Escola de pilotagem [720p].mp4
 ```
 
-O uploader ordena os arquivos por temporada/episódio e gera automaticamente uma legenda simples:
+O uploader ordena os arquivos por temporada/episódio e gera automaticamente uma legenda simples, preservando a qualidade quando ela já existe no nome:
 
 ```text
-#S01E01 - Bolhas de sabão + Calça rasgada
+#S01E01 - Bolhas de sabão + Calça rasgada [720p]
 ```
 
 Ao mudar de temporada, ele também pode criar automaticamente um separador:
@@ -95,7 +95,6 @@ Para usar outro canal somente em uma execução, sem trocar o padrão:
 tg-upload "C:\Videos\Minha Serie" --channel -1001234567890
 ```
 
-
 ## Destinos e tópicos
 
 Para uma biblioteca que mistura obras pequenas/médias em tópicos e deixa obras grandes em canais próprios, salve atalhos de destino.
@@ -106,7 +105,7 @@ Exemplo para o tópico **Animes** do grupo **Biblioteca**:
 tg-upload set-destination anime
 ```
 
-O comando lista os canais/grupos da conta e, se o grupo escolhido tiver tópicos, lista também os tópicos disponíveis. Tudo fica salvo apenas no `config.json` local.
+O comando abre um menu pesquisável para canais/grupos e, se o grupo escolhido tiver tópicos, abre também um menu pesquisável para os tópicos disponíveis. Tudo fica salvo apenas no `config.json` local.
 
 Você também pode informar diretamente:
 
@@ -214,11 +213,50 @@ Não publicar separadores de temporada:
 tg-upload "C:\Videos\Minha Serie\Season 01" --no-season-header
 ```
 
+## Upload rápido
+
+Por padrão, cada arquivo usa até **4 conexões MTProto em paralelo** para enviar partes diferentes do mesmo arquivo, sem enviar episódios diferentes ao mesmo tempo. Assim a ordem da série continua previsvisível e o throughput tende a ficar bem melhor do que no upload sequencial puro do Telethon.
+
+O instalador também instala `cryptg`, usado automaticamente pelo Telethon para acelerar a criptografia MTProto.
+
+Durante o upload, o progresso mostra porcentagem, volume enviado, velocidade média e ETA:
+
+```text
+S01E01:  42% (298.0/708.0 MiB) • 7.81 MiB/s • ETA 00:52
+```
+
+Para mudar a quantidade de conexões apenas nesta execução:
+
+```powershell
+tg-upload "C:\Videos\Minha Serie" --upload-workers 6
+```
+
+São aceitos valores de `1` a `8`. Usar `1` desativa o modo paralelo e volta ao upload compatível do Telethon:
+
+```powershell
+tg-upload "C:\Videos\Minha Serie" --upload-workers 1
+```
+
+Também é possível definir `TG_UPLOAD_WORKERS` ou adicionar `"upload_workers": 4` ao `config.json` local. Se o modo rápido falhar, o programa tenta automaticamente o modo compatível; se o Telegram pedir `FloodWait`, ele aguarda e reduz o restante daquela tentativa para o modo compatível.
+
 ## Organização
 
-O programa reconhece `SxxExx` no nome do arquivo. O título usado na legenda é o restante do nome, removendo o sufixo de qualidade como `[720p]`.
+O programa reconhece `SxxExx` em qualquer posição do nome do arquivo. O código do episódio é usado para ordenar e montar a hashtag; o restante do nome é preservado o máximo possível.
 
-Arquivos antigos do `video-dl` que tenham ` _ ` entre dois segmentos também são mostrados na legenda como ` + `, sem renomear o arquivo original.
+A qualidade não é inventada pelo `tg-upload`, mas também não é removida quando já existe no arquivo. Exemplos:
+
+```text
+Parasyte - The Maxim - S01E01.mkv
+→ #S01E01
+
+Parasyte - The Maxim - S01E01 [1080p].mkv
+→ #S01E01 [1080p]
+
+S01E02 - Bolhas de sabão + Calça rasgada [720p].mp4
+→ #S01E02 - Bolhas de sabão + Calça rasgada [720p]
+```
+
+O uploader também não transforma `_`, `/` ou outros separadores em `+`. Essa normalização pertence ao programa que criou o arquivo, como o `video-dl`.
 
 Os uploads concluídos são registrados localmente em:
 

@@ -1,12 +1,16 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import os
 import re
+import shutil
+import subprocess
 from pathlib import Path
 
 from InquirerPy import inquirer
 from InquirerPy.base.control import Choice
+from telethon import types
 
 import fast_upload
 import upload
@@ -14,6 +18,7 @@ import upload
 
 SEASON_DIR_RE = re.compile(r"(?i)^season\s+0*(\d+)$")
 QUALITY_ONLY_RE = re.compile(r"(?i)^\[(?:\d{3,4}p|4k|8k)\]$")
+STREAMABLE_EXTENSIONS = {".mp4", ".m4v", ".mov"}
 DEFAULT_UPLOAD_WORKERS = 4
 _ACTIVE_UPLOAD_WORKERS = DEFAULT_UPLOAD_WORKERS
 _ORIGINAL_BUILD_PARSER = upload.build_parser
@@ -139,13 +144,95 @@ async def _run(args) -> int:
     return await _ORIGINAL_RUN(args)
 
 
+def _supports_streaming(path: Path, as_document: bool) -> bool:
+    if as_document:
+        return False
+    return path.suffix.lower() in STREAMABLE_EXTENSIONS
+
+
+def _ffprobe_video(path: Path) -> dict[str, int] | None:
+    ffprobe = shutil.which("ffprobe")
+    if not ffprobe:
+        return None
+
+    command = [
+        ffprobe,
+        "-v",
+        "error",
+        "-select_streams",
+        "v:0",
+        "-show_entries",
+        "stream=width,height,duration:format=duration",
+        "-of",
+        "json",
+        str(path),
+    ]
+    try:
+        result = subprocess.run(
+            command,
+            capture_output=True,
+            text=True,
+            check=True,
+            timeout=20,
+        )
+        payload = json.loads(result.stdout or "{}")
+        streams = payload.get("streams") or []
+        if not streams:
+            return None
+
+        stream = streams[0]
+        width = int(stream.get("width") or 0)
+        height = int(stream.get("height") or 0)
+        duration_raw = stream.get("duration") or (payload.get("format") or {}).get("duration") or 0
+        duration = max(0, int(round(float(duration_raw))))
+        if width <= 0 or height <= 0:
+            return None
+        return {"width": width, "height": height, "duration": duration}
+    except (OSError, subprocess.SubprocessError, ValueError, TypeError, json.JSONDecodeError):
+        return None
+
+
+def _media_attributes(path: Path, as_document: bool):
+    supports_streaming = _supports_streaming(path, as_document)
+    attributes, mime_type = upload.utils.get_attributes(
+        str(path),
+        force_document=as_document,
+        supports_streaming=supports_streaming,
+    )
+
+    if as_document:
+        return attributes, mime_type, supports_streaming
+
+    metadata = _ffprobe_video(path)
+    if metadata:
+        attributes = [
+            attribute
+            for attribute in attributes
+            if not isinstance(attribute, types.DocumentAttributeVideo)
+        ]
+        attributes.append(
+            types.DocumentAttributeVideo(
+                duration=metadata["duration"],
+                w=metadata["width"],
+                h=metadata["height"],
+                round_message=False,
+                supports_streaming=supports_streaming,
+            )
+        )
+
+    return attributes, mime_type, supports_streaming
+
+
 async def _send_compatible(client, entity, item, as_document: bool, topic_id: int | None, reporter) -> None:
+    attributes, mime_type, supports_streaming = _media_attributes(item.path, as_document)
     await client.send_file(
         entity,
         str(item.path),
         caption=item.caption,
         force_document=as_document,
-        supports_streaming=not as_document,
+        supports_streaming=supports_streaming,
+        attributes=attributes,
+        mime_type=mime_type,
         reply_to=topic_id,
         progress_callback=reporter,
     )
@@ -160,17 +247,13 @@ async def _send_fast(client, entity, item, as_document: bool, topic_id: int | No
     )
     print()
 
-    attributes, mime_type = upload.utils.get_attributes(
-        str(item.path),
-        force_document=as_document,
-        supports_streaming=not as_document,
-    )
+    attributes, mime_type, supports_streaming = _media_attributes(item.path, as_document)
     await client.send_file(
         entity,
         uploaded_file,
         caption=item.caption,
         force_document=as_document,
-        supports_streaming=not as_document,
+        supports_streaming=supports_streaming,
         attributes=attributes,
         mime_type=mime_type,
         reply_to=topic_id,

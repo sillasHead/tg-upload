@@ -2,3 +2,4 @@ telethon>=1.42,<2
 InquirerPy>=0.3.4,<1
 cryptg>=0.6,<0.7; python_version >= "3.11"
 cryptg>=0.5,<0.6; python_version < "3.11"
+hachoir>=3.3,<4

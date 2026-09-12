@@ -23,7 +23,7 @@ Ao mudar de temporada, ele também pode criar automaticamente um separador:
 
 ## Instalação
 
-Requer Windows e Python 3.10+.
+Requer Windows e Python 3.10+. Para o ajuste automático de compatibilidade de MKV, também é recomendado ter `ffmpeg` e `ffprobe` no PATH; se eles não estiverem disponíveis, o instalador apenas avisa e o restante do uploader continua funcionando.
 
 Abra o PowerShell e rode:
 
@@ -238,6 +238,36 @@ tg-upload "C:\Videos\Minha Serie" --upload-workers 1
 ```
 
 Também é possível definir `TG_UPLOAD_WORKERS` ou adicionar `"upload_workers": 4` ao `config.json` local. Se o modo rápido falhar, o programa tenta automaticamente o modo compatível; se o Telegram pedir `FloodWait`, ele aguarda e reduz o restante daquela tentativa para o modo compatível.
+
+## Compatibilidade de MKV com o player do Telegram
+
+O modo padrão `--playback-fix auto` inspeciona arquivos `.mkv` com `ffprobe` antes do envio. Ele não altera o arquivo original. Quando detecta uma combinação que tende a causar problemas no player do Telegram, cria uma cópia temporária, envia essa cópia e a remove ao terminar.
+
+A heurística atual é conservadora e baseada em combinações que foram testadas na prática:
+
+- vídeo fora de H.264 8-bit (`yuv420p`) é convertido para H.264 High;
+- se houver mais de duas faixas de áudio, somente duas são mantidas na cópia temporária;
+- áudio selecionado que não seja AAC-LC é convertido para AAC-LC 48 kHz;
+- legendas, anexos/fontes, capítulos e metadados continuam no MKV sempre que o FFmpeg consegue copiá-los;
+- se H.264 precisar ser gerado, o programa testa NVENC de verdade e usa `h264_nvenc` quando a GPU/driver suportam; caso contrário, cai para `libx264` na CPU.
+
+Quando existem mais de duas faixas de áudio, por padrão a faixa marcada como `default` vem primeiro e as demais seguem a ordem original. É possível definir prioridade de idiomas:
+
+```powershell
+tg-upload "C:\Videos\Minha Serie" --audio-languages por,jpn
+```
+
+Também é possível configurar `TG_AUDIO_LANGUAGES=por,jpn` ou `"audio_languages": ["por", "jpn"]` no `config.json` local.
+
+Para desativar completamente o ajuste e enviar o MKV original:
+
+```powershell
+tg-upload "C:\Videos\Minha Serie" --playback-fix off
+```
+
+A configuração também pode ser persistida com `TG_PLAYBACK_FIX=off` ou `"playback_fix": "off"` no `config.json`.
+
+O modo `--document` sempre envia o original e pula essa preparação, porque nesse caso a prioridade não é reprodução inline.
 
 ## Organização
 

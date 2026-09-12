@@ -81,8 +81,16 @@ python "%TG_UPLOAD_APP%" %*
 exit /b %ERRORLEVEL%
 
 :update
-powershell -NoProfile -ExecutionPolicy Bypass -Command "irm https://raw.githubusercontent.com/sillasHead/tg-upload/main/setup.ps1 ^| iex"
-exit /b %ERRORLEVEL%
+set "TG_UPLOAD_SETUP=%TEMP%\tg-upload-setup-%RANDOM%%RANDOM%.ps1"
+powershell -NoProfile -Command "Invoke-WebRequest -UseBasicParsing -Uri 'https://raw.githubusercontent.com/sillasHead/tg-upload/main/setup.ps1' -OutFile '%TG_UPLOAD_SETUP%'"
+if errorlevel 1 (
+    echo Falha ao baixar o atualizador.
+    exit /b 1
+)
+powershell -NoProfile -ExecutionPolicy Bypass -File "%TG_UPLOAD_SETUP%"
+set "TG_UPLOAD_EXIT=%ERRORLEVEL%"
+del /q "%TG_UPLOAD_SETUP%" >nul 2>nul
+exit /b %TG_UPLOAD_EXIT%
 '@
 
     # Durante `tg-upload update`, este .cmd é justamente o arquivo que está em execução.

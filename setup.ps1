@@ -25,7 +25,7 @@ try {
     Write-Host "Instalando tg-upload..." -ForegroundColor Cyan
     Ensure-Directory $tempDir
 
-    foreach ($name in @("upload.py", "requirements.txt")) {
+    foreach ($name in @("upload.py", "launcher.py", "requirements.txt")) {
         $url = "https://raw.githubusercontent.com/$repo/main/$name"
         $target = Join-Path $tempDir $name
         Invoke-WebRequest -Uri $url -OutFile $target -UseBasicParsing
@@ -53,13 +53,14 @@ try {
     Ensure-Directory $binDir
 
     Copy-Item -LiteralPath (Join-Path $tempDir "upload.py") -Destination (Join-Path $appDir "upload.py") -Force
+    Copy-Item -LiteralPath (Join-Path $tempDir "launcher.py") -Destination (Join-Path $appDir "launcher.py") -Force
     Copy-Item -LiteralPath (Join-Path $tempDir "requirements.txt") -Destination (Join-Path $appDir "requirements.txt") -Force
 
     $cmdPath = Join-Path $binDir "tg-upload.cmd"
     $cmd = @'
 @echo off
 setlocal
-set "TG_UPLOAD_APP=%LOCALAPPDATA%\telegram-media-upload\app\upload.py"
+set "TG_UPLOAD_APP=%LOCALAPPDATA%\telegram-media-upload\app\launcher.py"
 
 if /I "%~1"=="update" goto update
 
@@ -93,9 +94,6 @@ del /q "%TG_UPLOAD_SETUP%" >nul 2>nul
 exit /b %TG_UPLOAD_EXIT%
 '@
 
-    # Durante `tg-upload update`, este .cmd é justamente o arquivo que está em execução.
-    # O Windows pode bloquear a regravação dele. Se o conteúdo já for o mesmo, não há
-    # motivo para tocá-lo. Isso mantém o bootstrap estável e evita "Access is denied".
     $existingCmd = $null
     if (Test-Path -LiteralPath $cmdPath -PathType Leaf) {
         try { $existingCmd = Get-Content -LiteralPath $cmdPath -Raw -ErrorAction Stop } catch { }
@@ -106,7 +104,7 @@ exit /b %TG_UPLOAD_EXIT%
             Set-Content -LiteralPath $cmdPath -Value $cmd -Encoding ASCII -ErrorAction Stop
         }
         catch {
-            Write-Warning "Não foi possível atualizar o atalho tg-upload.cmd porque ele está em uso. O aplicativo foi atualizado; o atalho atual continua válido."
+            Write-Warning "Não foi possível atualizar o atalho tg-upload.cmd porque ele está em uso. O aplicativo foi atualizado; o atalho atual continua válido até o próximo terminal."
         }
     }
 

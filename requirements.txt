@@ -1,1 +1,2 @@
 telethon>=1.42,<2
+InquirerPy>=0.3.4,<1

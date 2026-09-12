@@ -45,8 +45,6 @@ def _clean_episode_title(stem: str, match: re.Match[str] | None) -> str:
             title = before or after
 
     title = upload.QUALITY_RE.sub("", title)
-    title = re.sub(r"\s+_\s+", " + ", title)
-    title = re.sub(r"\s*/\s*", " + ", title)
     title = re.sub(r"\s*[-–—:|]+\s*$", "", title)
     title = re.sub(r"^[\s._+\-–—:|]+", "", title)
     title = re.sub(r"\s+", " ", title).strip(" ._-+")

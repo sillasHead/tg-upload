@@ -16,8 +16,16 @@ def test_episode_code_at_end_becomes_clean_caption():
     assert launcher._smart_caption(item) == "#S01E06"
 
 
-def test_episode_code_at_start_keeps_episode_title():
+def test_episode_code_at_start_preserves_existing_separator():
     path = Path("Bob Esponja Calça Quadrada") / "S01E02 - Bolhas de sabão _ Calça rasgada [720p].mp4"
+    item = launcher._smart_parse_media(path)
+    assert item.code == "S01E02"
+    assert item.title == "Bolhas de sabão _ Calça rasgada"
+    assert launcher._smart_caption(item) == "#S01E02 - Bolhas de sabão _ Calça rasgada"
+
+
+def test_plus_from_video_dl_is_preserved():
+    path = Path("Bob Esponja Calça Quadrada") / "S01E02 - Bolhas de sabão + Calça rasgada [720p].mp4"
     item = launcher._smart_parse_media(path)
     assert item.code == "S01E02"
     assert item.title == "Bolhas de sabão + Calça rasgada"

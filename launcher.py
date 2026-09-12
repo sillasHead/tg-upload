@@ -19,7 +19,7 @@ import upload
 
 SEASON_DIR_RE = re.compile(r"(?i)^season\s+0*(\d+)$")
 QUALITY_ONLY_RE = re.compile(r"(?i)^\[(?:\d{3,4}p|4k|8k)\]$")
-STREAMABLE_EXTENSIONS = {".mp4", ".m4v", ".mov"}
+STREAMABLE_EXTENSIONS = {".mp4", ".m4v", ".mov", ".mkv"}
 DEFAULT_UPLOAD_WORKERS = 4
 DEFAULT_PLAYBACK_FIX = "auto"
 _ACTIVE_UPLOAD_WORKERS = DEFAULT_UPLOAD_WORKERS

@@ -42,19 +42,23 @@ def _library_from_path(path: Path) -> str | None:
     return parent.name
 
 
+def _trim_episode_separator(value: str) -> str:
+    value = re.sub(r"^[\s._+\-–—:|]+", "", value)
+    value = re.sub(r"[\s._+\-–—:|]+$", "", value)
+    return value.strip()
+
+
 def _clean_episode_title(stem: str, match: re.Match[str] | None) -> str:
     title = stem
     if match:
-        before = stem[: match.start()].strip()
-        after = stem[match.end() :].strip()
+        before = _trim_episode_separator(stem[: match.start()])
+        after = _trim_episode_separator(stem[match.end() :])
         if before and after:
             title = f"{before} - {after}"
         else:
             title = before or after
 
-    title = re.sub(r"\s*[-–—:|]+\s*$", "", title)
-    title = re.sub(r"^[\s._+\-–—:|]+", "", title)
-    title = re.sub(r"\s+", " ", title).strip(" ._-+")
+    title = re.sub(r"\s+", " ", title).strip()
     return title
 
 
@@ -69,7 +73,7 @@ def _strip_redundant_library_prefix(title: str, library: str | None) -> str:
         rf"^\s*{re.escape(library)}\s*[-–—:|]+\s*",
         re.IGNORECASE,
     )
-    return pattern.sub("", title, count=1).strip()
+    return _trim_episode_separator(pattern.sub("", title, count=1))
 
 
 def _smart_parse_media(path: Path) -> upload.MediaItem:

@@ -203,7 +203,7 @@ def build_plan(
     preferred_languages: tuple[str, ...] = (),
 ) -> CompatibilityPlan:
     source = Path(path)
-    if source.suffix.casefold() != ".mkv":
+    if source.suffix.casefold() != ".mkv" or probe.video is None:
         return CompatibilityPlan(
             source=source,
             probe=probe,
@@ -242,7 +242,9 @@ def build_plan(
         )
     if dropped:
         actions.append(
-            "limitar áudio a 2 faixas; remover da cópia temporária: "
+            "limitar áudio a 2 faixas; manter "
+            + ", ".join(audio.label for audio in selected)
+            + "; remover da cópia temporária: "
             + ", ".join(audio.label for audio in dropped)
         )
     for position in transcode_audio_positions:
@@ -393,7 +395,7 @@ def prepare_for_telegram(plan: CompatibilityPlan) -> PreparedMedia:
         result = subprocess.run(command)
         if result.returncode != 0 or not output.exists() or output.stat().st_size == 0:
             raise RuntimeError(f"FFmpeg terminou com código {result.returncode}.")
-    except Exception:
+    except BaseException:
         tempdir.cleanup()
         raise
 

@@ -28,7 +28,10 @@ Requer Windows e Python 3.10+.
 Abra o PowerShell e rode:
 
 ```powershell
-irm https://raw.githubusercontent.com/sillasHead/tg-upload/main/setup.ps1 | iex
+$setup = Join-Path $env:TEMP "tg-upload-setup.ps1"
+Invoke-WebRequest "https://raw.githubusercontent.com/sillasHead/tg-upload/main/setup.ps1" -OutFile $setup
+powershell -NoProfile -ExecutionPolicy Bypass -File $setup
+Remove-Item $setup -Force -ErrorAction SilentlyContinue
 ```
 
 O instalador adiciona `tg-upload` ao PATH do usuário. Depois, em qualquer terminal:
@@ -42,6 +45,8 @@ Para atualizar:
 ```powershell
 tg-upload update
 ```
+
+O updater baixa o `setup.ps1` para um arquivo temporário antes de executá-lo; ele não usa `Invoke-Expression`/`iex`.
 
 ## Primeiro uso
 

@@ -4,10 +4,10 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
-$script = Join-Path $PSScriptRoot "entrypoint.py"
+$script = Join-Path $PSScriptRoot "runtime.py"
 
 if (-not (Test-Path -LiteralPath $script -PathType Leaf)) {
-    throw "entrypoint.py não encontrado em $PSScriptRoot"
+    throw "runtime.py não encontrado em $PSScriptRoot"
 }
 
 if (Get-Command py -ErrorAction SilentlyContinue) {

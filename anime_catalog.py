@@ -7,12 +7,14 @@ import tempfile
 import urllib.error
 import urllib.parse
 import urllib.request
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
+from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
 
 ANILIST_ENDPOINT = "https://graphql.anilist.co"
+GOOGLE_TRANSLATE_ENDPOINT = "https://translate.googleapis.com/translate_a/single"
 METADATA_FILENAME = "tg-upload.json"
 GENERIC_MEDIA_DIRS = {
     "mkv",
@@ -191,6 +193,7 @@ def load_metadata(root: Path) -> AnimeMetadata | None:
 
 
 def save_metadata(root: Path, anime: AnimeMetadata) -> Path:
+    anime = localize_anime(anime)
     path = metadata_path(root)
     existing: dict[str, Any] = {}
     if path.exists():
@@ -217,9 +220,54 @@ def _clean_description(value: str | None) -> str | None:
     text = re.sub(r"<[^>]+>", "", text)
     text = re.sub(r"\[(.*?)\]\([^)]*\)", r"\1", text)
     text = text.replace("**", "").replace("__", "")
+    text = re.sub(r"(?is)\s*\((?:Source|Written by)[^)]*\)\s*$", "", text)
+    text = re.sub(r"(?is)\s*\[(?:Source|Written by)[^]]*\]\s*$", "", text)
     text = re.sub(r"[ \t]+", " ", text)
     text = re.sub(r"\n\s*\n+", "\n", text)
     return text.strip() or None
+
+
+@lru_cache(maxsize=64)
+def translate_synopsis_pt(value: str) -> str:
+    text = str(value or "").strip()
+    if not text:
+        return text
+
+    params = urllib.parse.urlencode(
+        {
+            "client": "gtx",
+            "sl": "auto",
+            "tl": "pt",
+            "dt": "t",
+            "q": text,
+        }
+    )
+    request = urllib.request.Request(
+        f"{GOOGLE_TRANSLATE_ENDPOINT}?{params}",
+        headers={"User-Agent": "tg-upload/1.0"},
+    )
+
+    try:
+        with urllib.request.urlopen(request, timeout=15) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+        segments = payload[0] if isinstance(payload, list) and payload else []
+        translated = "".join(
+            str(segment[0])
+            for segment in segments
+            if isinstance(segment, list) and segment and segment[0]
+        ).strip()
+        return translated or text
+    except (OSError, TimeoutError, ValueError, TypeError, json.JSONDecodeError, urllib.error.URLError):
+        return text
+
+
+def localize_anime(anime: AnimeMetadata) -> AnimeMetadata:
+    if anime.source != "anilist" or not anime.synopsis:
+        return anime
+    translated = translate_synopsis_pt(anime.synopsis)
+    if not translated or translated == anime.synopsis:
+        return anime
+    return replace(anime, synopsis=translated)
 
 
 def _metadata_from_anilist(payload: dict[str, Any]) -> AnimeMetadata:
@@ -335,6 +383,7 @@ def format_intro(
     audio_labels: tuple[str, ...] = (),
     max_length: int = 1000,
 ) -> str:
+    anime = localize_anime(anime)
     lines = [f"🎬 {anime.title}"]
     if anime.original_title and anime.original_title.casefold() != anime.title.casefold():
         lines.append(f"🇯🇵 {anime.original_title}")

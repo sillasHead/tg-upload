@@ -4,10 +4,10 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
-$script = Join-Path $PSScriptRoot "upload.py"
+$script = Join-Path $PSScriptRoot "entrypoint.py"
 
 if (-not (Test-Path -LiteralPath $script -PathType Leaf)) {
-    throw "upload.py não encontrado em $PSScriptRoot"
+    throw "entrypoint.py não encontrado em $PSScriptRoot"
 }
 
 if (Get-Command py -ErrorAction SilentlyContinue) {

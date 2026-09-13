@@ -276,16 +276,41 @@ def analyze_for_telegram(
     return build_plan(source, probe, preferred_languages)
 
 
+def _compact_error(value: str, limit: int = 240) -> str:
+    lines = [line.strip() for line in str(value or "").splitlines() if line.strip()]
+    text = lines[-1] if lines else "erro desconhecido"
+    if len(text) > limit:
+        text = text[: limit - 1].rstrip() + "…"
+    return text
+
+
 @lru_cache(maxsize=4)
-def _nvenc_works(ffmpeg: str) -> bool:
+def nvenc_status(ffmpeg: str) -> tuple[bool, str]:
+    try:
+        listed = subprocess.run(
+            [ffmpeg, "-hide_banner", "-encoders"],
+            capture_output=True,
+            text=True,
+            timeout=15,
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        return False, f"não foi possível consultar os encoders do FFmpeg: {exc}"
+
+    encoder_list = (listed.stdout or "") + "\n" + (listed.stderr or "")
+    if "h264_nvenc" not in encoder_list:
+        return False, "este FFmpeg não inclui o encoder h264_nvenc"
+
     command = [
         ffmpeg,
-        "-v",
+        "-hide_banner",
+        "-loglevel",
         "error",
         "-f",
         "lavfi",
         "-i",
-        "color=size=64x64:rate=1",
+        "color=size=128x128:rate=1:duration=1",
+        "-pix_fmt",
+        "yuv420p",
         "-frames:v",
         "1",
         "-c:v",
@@ -298,16 +323,21 @@ def _nvenc_works(ffmpeg: str) -> bool:
         result = subprocess.run(
             command,
             stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
+            stderr=subprocess.PIPE,
+            text=True,
             timeout=15,
         )
-        return result.returncode == 0
-    except (OSError, subprocess.TimeoutExpired):
-        return False
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        return False, f"teste do NVENC não pôde ser executado: {exc}"
+
+    if result.returncode == 0:
+        return True, "disponível"
+    return False, _compact_error(result.stderr)
 
 
 def choose_h264_encoder(ffmpeg: str) -> str:
-    return "h264_nvenc" if _nvenc_works(ffmpeg) else "libx264"
+    available, _ = nvenc_status(ffmpeg)
+    return "h264_nvenc" if available else "libx264"
 
 
 def _build_ffmpeg_command(
@@ -341,7 +371,7 @@ def _build_ffmpeg_command(
             command.extend(
                 [
                     "-preset",
-                    "p6",
+                    "p5",
                     "-tune",
                     "hq",
                     "-rc",
@@ -353,29 +383,32 @@ def _build_ffmpeg_command(
                 ]
             )
         else:
-            command.extend(["-preset", "medium", "-crf", "20"])
+            command.extend(["-preset", "veryfast", "-crf", "20"])
     else:
         command.extend(["-c:v", "copy"])
 
-    command.extend(["-c:a", "copy", "-c:s", "copy", "-c:t", "copy", "-c:d", "copy"])
+    command.extend(["-c:s", "copy", "-c:t", "copy", "-c:d", "copy"])
+    transcode_audio = set(plan.transcode_audio_positions)
     for position in range(len(plan.selected_audios)):
+        if position in transcode_audio:
+            command.extend(
+                [
+                    f"-c:a:{position}",
+                    "aac",
+                    f"-profile:a:{position}",
+                    "aac_low",
+                    f"-b:a:{position}",
+                    "160k",
+                    f"-ar:a:{position}",
+                    "48000",
+                ]
+            )
+        else:
+            command.extend([f"-c:a:{position}", "copy"])
         command.extend(
             [
                 f"-disposition:a:{position}",
                 "default" if position == 0 else "0",
-            ]
-        )
-    for position in plan.transcode_audio_positions:
-        command.extend(
-            [
-                f"-c:a:{position}",
-                "aac",
-                f"-profile:a:{position}",
-                "aac_low",
-                f"-b:a:{position}",
-                "160k",
-                f"-ar:a:{position}",
-                "48000",
             ]
         )
 
@@ -419,9 +452,10 @@ def describe_plan(plan: CompatibilityPlan) -> list[str]:
     if plan.transcode_video:
         ffmpeg = shutil.which("ffmpeg")
         if ffmpeg:
-            encoder = choose_h264_encoder(ffmpeg)
-            if encoder == "h264_nvenc":
+            available, reason = nvenc_status(ffmpeg)
+            if available:
                 lines.append("  - encoder de vídeo: NVIDIA NVENC")
             else:
-                lines.append("  - encoder de vídeo: libx264 (CPU; NVENC indisponível)")
+                lines.append(f"  - encoder de vídeo: libx264 (CPU; NVENC indisponível: {reason})")
+                lines.append("  - fallback CPU otimizado: preset veryfast")
     return lines

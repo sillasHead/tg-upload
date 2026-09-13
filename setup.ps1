@@ -25,7 +25,7 @@ try {
     Write-Host "Instalando tg-upload..." -ForegroundColor Cyan
     Ensure-Directory $tempDir
 
-    foreach ($name in @("upload.py", "launcher.py", "entrypoint.py", "fast_upload.py", "media_compat.py", "anime_catalog.py", "media_catalog.py", "requirements.txt")) {
+    foreach ($name in @("upload.py", "launcher.py", "entrypoint.py", "runtime.py", "fast_upload.py", "media_compat.py", "anime_catalog.py", "media_catalog.py", "requirements.txt")) {
         $url = "https://raw.githubusercontent.com/$repo/main/$name"
         $target = Join-Path $tempDir $name
         Invoke-WebRequest -Uri $url -OutFile $target -UseBasicParsing
@@ -55,6 +55,7 @@ try {
     Copy-Item -LiteralPath (Join-Path $tempDir "upload.py") -Destination (Join-Path $appDir "upload.py") -Force
     Copy-Item -LiteralPath (Join-Path $tempDir "launcher.py") -Destination (Join-Path $appDir "launcher.py") -Force
     Copy-Item -LiteralPath (Join-Path $tempDir "entrypoint.py") -Destination (Join-Path $appDir "entrypoint.py") -Force
+    Copy-Item -LiteralPath (Join-Path $tempDir "runtime.py") -Destination (Join-Path $appDir "runtime.py") -Force
     Copy-Item -LiteralPath (Join-Path $tempDir "fast_upload.py") -Destination (Join-Path $appDir "fast_upload.py") -Force
     Copy-Item -LiteralPath (Join-Path $tempDir "media_compat.py") -Destination (Join-Path $appDir "media_compat.py") -Force
     Copy-Item -LiteralPath (Join-Path $tempDir "anime_catalog.py") -Destination (Join-Path $appDir "anime_catalog.py") -Force
@@ -65,7 +66,7 @@ try {
     $cmd = @'
 @echo off
 setlocal
-set "TG_UPLOAD_APP=%LOCALAPPDATA%\telegram-media-upload\app\entrypoint.py"
+set "TG_UPLOAD_APP=%LOCALAPPDATA%\telegram-media-upload\app\runtime.py"
 
 if /I "%~1"=="update" goto update
 

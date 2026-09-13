@@ -1,10 +1,12 @@
 import unittest
+from dataclasses import asdict
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
 from telethon import types
 
+import anime_catalog
 import launcher
 
 
@@ -66,6 +68,20 @@ class LauncherTests(unittest.TestCase):
         self.assertEqual(launcher._parse_audio_languages("por,jpn"), ("por", "jpn"))
         self.assertEqual(launcher._parse_audio_languages(["POR", " jpn "]), ("por", "jpn"))
         self.assertEqual(launcher._parse_audio_languages(None), ())
+
+    def test_anime_candidate_choice_keeps_metadata_outside_choice_value(self):
+        candidate = anime_catalog.AnimeMetadata(
+            title="Parasyte - The Maxim",
+            year=2014,
+            episodes=24,
+        )
+
+        choices, by_value = launcher._anime_candidate_choices([candidate])
+        serialized_choice = asdict(choices[0])
+
+        self.assertEqual(serialized_choice["value"], "candidate:0")
+        self.assertIsInstance(serialized_choice["value"], str)
+        self.assertIs(by_value["candidate:0"], candidate)
 
 
 if __name__ == "__main__":

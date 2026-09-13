@@ -433,6 +433,18 @@ def _optional_int(value: str) -> int | None:
         return None
 
 
+def _anime_candidate_choices(
+    candidates: list[anime_catalog.AnimeMetadata],
+) -> tuple[list[Choice], dict[str, anime_catalog.AnimeMetadata]]:
+    choices: list[Choice] = []
+    by_value: dict[str, anime_catalog.AnimeMetadata] = {}
+    for index, candidate in enumerate(candidates):
+        value = f"candidate:{index}"
+        choices.append(Choice(value=value, name=candidate.label))
+        by_value[value] = candidate
+    return choices, by_value
+
+
 async def _manual_anime_metadata(
     base: anime_catalog.AnimeMetadata | None = None,
 ) -> anime_catalog.AnimeMetadata | None:
@@ -502,14 +514,12 @@ async def _choose_anime_metadata(
             print(f"Catálogo indisponível: {exc}")
             candidates = []
 
-        choices: list[Choice] = [
-            Choice(value=candidate, name=candidate.label) for candidate in candidates
-        ]
+        choices, candidate_by_value = _anime_candidate_choices(candidates)
         choices.extend(
             [
-                Choice(value="__search__", name="🔎 Pesquisar outro nome"),
-                Choice(value="__manual__", name="✍️ Preencher manualmente"),
-                Choice(value="__skip__", name="⏭️ Pular apresentação desta vez"),
+                Choice(value="__search__", name="🔎  Pesquisar outro nome"),
+                Choice(value="__manual__", name="✍️  Preencher manualmente"),
+                Choice(value="__skip__", name="⏭️  Pular apresentação desta vez"),
             ]
         )
 
@@ -536,17 +546,20 @@ async def _choose_anime_metadata(
         if selected == "__manual__":
             return await _manual_anime_metadata()
 
-        candidate: anime_catalog.AnimeMetadata = selected
+        candidate = candidate_by_value.get(str(selected))
+        if candidate is None:
+            raise RuntimeError(f"Seleção de anime inválida: {selected!r}")
+
         print("\nPrévia:")
         print(anime_catalog.format_intro(candidate, max_length=850))
         action = await inquirer.select(
             message="O que fazer com estes dados?",
             choices=[
-                Choice(value="use", name="✅ Usar estes dados"),
-                Choice(value="edit", name="✏️ Usar e editar antes de salvar"),
-                Choice(value="back", name="↩️ Voltar aos resultados"),
-                Choice(value="search", name="🔎 Pesquisar outro nome"),
-                Choice(value="skip", name="⏭️ Pular apresentação desta vez"),
+                Choice(value="use", name="✅  Usar estes dados"),
+                Choice(value="edit", name="✏️  Usar e editar antes de salvar"),
+                Choice(value="back", name="↩️  Voltar aos resultados"),
+                Choice(value="search", name="🔎  Pesquisar outro nome"),
+                Choice(value="skip", name="⏭️  Pular apresentação desta vez"),
             ],
             border=True,
         ).execute_async()

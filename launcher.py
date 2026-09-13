@@ -517,9 +517,9 @@ async def _choose_anime_metadata(
         choices, candidate_by_value = _anime_candidate_choices(candidates)
         choices.extend(
             [
-                Choice(value="__search__", name="🔎  Pesquisar outro nome"),
-                Choice(value="__manual__", name="✍️  Preencher manualmente"),
-                Choice(value="__skip__", name="⏭️  Pular apresentação desta vez"),
+                Choice(value="__search__", name="⌕  Pesquisar outro nome"),
+                Choice(value="__manual__", name="✎  Preencher manualmente"),
+                Choice(value="__skip__", name="»  Pular apresentação desta vez"),
             ]
         )
 
@@ -555,11 +555,11 @@ async def _choose_anime_metadata(
         action = await inquirer.select(
             message="O que fazer com estes dados?",
             choices=[
-                Choice(value="use", name="✅  Usar estes dados"),
-                Choice(value="edit", name="✏️  Usar e editar antes de salvar"),
-                Choice(value="back", name="↩️  Voltar aos resultados"),
-                Choice(value="search", name="🔎  Pesquisar outro nome"),
-                Choice(value="skip", name="⏭️  Pular apresentação desta vez"),
+                Choice(value="use", name="✓  Usar estes dados"),
+                Choice(value="edit", name="✎  Usar e editar antes de salvar"),
+                Choice(value="back", name="←  Voltar aos resultados"),
+                Choice(value="search", name="⌕  Pesquisar outro nome"),
+                Choice(value="skip", name="»  Pular apresentação desta vez"),
             ],
             border=True,
         ).execute_async()

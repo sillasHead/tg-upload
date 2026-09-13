@@ -160,5 +160,12 @@ media_catalog.search_tmdb = _search_tmdb_resilient
 import entrypoint
 
 
+def main() -> int:
+    special = entrypoint._catalog_special_command()
+    if special is not None:
+        return special
+    return entrypoint.launcher.main()
+
+
 if __name__ == "__main__":
-    raise SystemExit(entrypoint.main())
+    raise SystemExit(main())

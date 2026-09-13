@@ -233,7 +233,9 @@ def build_plan(
         if _needs_audio_transcode(audio)
     )
 
-    actions: list[str] = []
+    actions: list[str] = [
+        "container MKV -> MP4 para reprodução nativa no Telegram"
+    ]
     if transcode_video and video:
         profile = f" {video.profile}" if video.profile else ""
         pixel = f"/{video.pix_fmt}" if video.pix_fmt else ""
@@ -253,6 +255,8 @@ def build_plan(
         actions.append(
             f"áudio {audio.label}: {audio.codec_name.upper()}{profile} -> AAC-LC 48 kHz"
         )
+    if probe.subtitles or probe.attachments:
+        actions.append("legendas/anexos do MKV não entram na cópia MP4 temporária")
 
     return CompatibilityPlan(
         source=source,
@@ -360,7 +364,6 @@ def _build_ffmpeg_command(
     for audio in plan.selected_audios:
         command.extend(["-map", f"0:{audio.index}"])
 
-    command.extend(["-map", "0:s?", "-map", "0:t?", "-map", "0:d?"])
     command.extend(["-map_metadata", "0", "-map_chapters", "0"])
 
     if plan.transcode_video:
@@ -385,7 +388,6 @@ def _build_ffmpeg_command(
     else:
         command.extend(["-c:v", "copy"])
 
-    command.extend(["-c:s", "copy", "-c:t", "copy", "-c:d", "copy"])
     transcode_audio = set(plan.transcode_audio_positions)
     for position in range(len(plan.selected_audios)):
         if position in transcode_audio:
@@ -410,7 +412,7 @@ def _build_ffmpeg_command(
             ]
         )
 
-    command.append(str(output))
+    command.extend(["-movflags", "+faststart", str(output)])
     return command
 
 
@@ -426,7 +428,7 @@ def prepare_for_telegram(plan: CompatibilityPlan) -> PreparedMedia:
 
     encoder = choose_h264_encoder(ffmpeg) if plan.transcode_video else "copy"
     tempdir = tempfile.TemporaryDirectory(prefix="tg-upload-compat-")
-    output = Path(tempdir.name) / plan.source.name
+    output = Path(tempdir.name) / f"{plan.source.stem}.mp4"
     command = _build_ffmpeg_command(plan, output, ffmpeg, encoder)
 
     try:
@@ -442,9 +444,9 @@ def prepare_for_telegram(plan: CompatibilityPlan) -> PreparedMedia:
 
 def describe_plan(plan: CompatibilityPlan) -> list[str]:
     if not plan.needs_conversion:
-        return ["MKV já está no perfil de compatibilidade; envio sem conversão."]
+        return ["Arquivo já está no perfil de compatibilidade; envio sem conversão."]
 
-    lines = ["Compatibilidade Telegram: criando cópia temporária; o original não será alterado."]
+    lines = ["Compatibilidade Telegram: criando cópia MP4 temporária; o original não será alterado."]
     lines.extend(f"  - {action}" for action in plan.actions)
 
     if plan.transcode_video:

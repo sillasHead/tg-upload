@@ -23,6 +23,7 @@ PORTUGUESE_CODES = {"por", "pt", "pt-br", "pt_br", "pob"}
 QUALITY_RE = re.compile(r"(?i)\[(\d{3,4}p|4k|8k)\]")
 TRAILING_QUALITY_RE = re.compile(r"(?i)\s*\[(?:\d{3,4}p|4k|8k)\]\s*$")
 TAG_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_]{0,63}$")
+SUBTITLE_SEPARATOR_RE = re.compile(r"\s+(?:-|–|—)\s+|:\s+")
 LONG_TITLE_STOPWORDS = {
     "a",
     "an",
@@ -81,6 +82,14 @@ def _ascii_words(value: str) -> list[str]:
     return re.findall(r"[A-Za-z0-9]+", text)
 
 
+def _tag_word(value: str) -> str:
+    if not value or value.isdigit():
+        return value
+    if len(value) > 1 and value.isupper():
+        return value
+    return value[:1].upper() + value[1:]
+
+
 def normalize_search_tag(value: str) -> str:
     raw = str(value or "").strip().lstrip("#")
     words = _ascii_words(raw.replace("_", " "))
@@ -93,17 +102,29 @@ def normalize_search_tag(value: str) -> str:
 
 
 def generate_search_tag(title: str) -> str:
-    words = _ascii_words(title)
+    """Gera uma tag curta, estável e pesquisável para a obra."""
+    text = str(title or "").strip()
+    if not text:
+        return "Media"
+
+    primary = SUBTITLE_SEPARATOR_RE.split(text, maxsplit=1)[0].strip()
+    primary_words = _ascii_words(primary)
+    pretty_primary = "_".join(_tag_word(word) for word in primary_words)
+
+    if primary != text and primary_words and len(pretty_primary) <= 32:
+        return normalize_search_tag(pretty_primary)
+
+    words = _ascii_words(text)
     if not words:
         return "Media"
 
-    full = "_".join(words)
-    if len(full) <= 32 and len(words) <= 5:
-        return normalize_search_tag(full)
+    pretty_full = "_".join(_tag_word(word) for word in words)
+    if len(pretty_full) <= 32 and len(words) <= 5:
+        return normalize_search_tag(pretty_full)
 
     meaningful = [word for word in words if word.casefold() not in LONG_TITLE_STOPWORDS]
     chosen = (meaningful or words)[:2]
-    return normalize_search_tag("_".join(chosen))
+    return normalize_search_tag("_".join(_tag_word(word) for word in chosen))
 
 
 def _metadata_payload(root: Path) -> dict[str, Any]:
@@ -199,8 +220,6 @@ def _load_metadata(root: Path, target: Path, kind: str | None):
 def _is_collection_destination(destination: upload.Destination, kind: str | None) -> bool:
     if kind not in {"anime", "desenho", "serie"}:
         return False
-    # _content_kind só reconhece aliases/tópicos de categoria. Um canal exclusivo
-    # da obra normalmente não produz kind aqui, então não recebe hashtag redundante.
     return _entrypoint()._content_kind(destination) == kind
 
 
@@ -226,16 +245,22 @@ def _prime_context(destination: upload.Destination) -> None:
     saved = _saved_search_tag(root)
 
     tag = None
+    persist_tag = False
     if kind in {"anime", "desenho", "serie"}:
         if explicit:
             tag = normalize_search_tag(explicit)
+            persist_tag = True
         elif saved:
             tag = saved
+        elif metadata is not None:
+            # Só salva a sugestão automática após o catálogo confirmar a obra.
+            # Evita perpetuar uma tag baseada em pasta como "parasyte-dub".
+            tag = generate_search_tag(metadata.title)
+            persist_tag = True
         else:
-            source_title = metadata.title if metadata is not None else root.name
-            tag = generate_search_tag(source_title)
+            tag = generate_search_tag(root.name)
 
-        if tag and tag != saved:
+        if persist_tag and tag and tag != saved:
             try:
                 _save_library_profile(root, tag)
                 print(f"Tag de busca: #{tag}")
@@ -402,7 +427,6 @@ def _build_parser():
 async def _maybe_publish_with_context(client, destination: upload.Destination) -> None:
     _prime_context(destination)
     await _ORIGINAL_MAYBE_PUBLISH(client, destination)
-    # O catálogo pode ter sido criado/atualizado durante a chamada acima.
     _prime_context(destination)
 
 

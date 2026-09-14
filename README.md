@@ -1,31 +1,125 @@
 # tg-upload
 
-Uploader em lote para canais do Telegram usando Telethon.
+Uploader em lote para Telegram usando Telethon, voltado a uma biblioteca organizada de **animes, desenhos, séries e filmes**.
 
-Pensado para bibliotecas de episódios com nomes como:
+O projeto preserva os arquivos originais, mantém estado local para não reenviar conteúdo por engano e automatiza legenda, catálogo, thumbnail e envio rápido.
 
-```text
-S01E01 - Bolhas de sabão + Calça rasgada [720p].mp4
-S01E02 - Vizinhos náuticos terríveis + Escola de pilotagem [720p].mp4
-```
+## Como a biblioteca fica
 
-O uploader ordena os arquivos por temporada/episódio e gera automaticamente uma legenda simples, preservando a qualidade quando ela já existe no nome:
+A estrutura recomendada é manter categorias gerais para obras pequenas e médias:
 
 ```text
-#S01E01 - Bolhas de sabão + Calça rasgada [720p]
+Free Media
+├─ Animes
+├─ Desenhos
+├─ Séries
+└─ Filmes
 ```
 
-Ao mudar de temporada, ele também pode criar automaticamente um separador:
+Franquias muito grandes podem continuar em canais próprios. O `tg-upload` evita repetir a hashtag da obra quando o destino não é um tópico geral de categoria.
+
+Em um tópico geral, uma temporada fica assim:
 
 ```text
-📺 #S01 — TEMPORADA 1
+📺 PARASYTE - THE MAXIM — TEMPORADA 1
+#Parasyte
+
+#S01E01 - Nome do episódio [1080p • Multi Áudio]
+#Parasyte
 ```
+
+A hashtag da obra é canônica e reutilizada em todos os episódios. Isso deixa a busca do Telegram simples sem colocar o título inteiro em cada legenda.
+
+Exemplos de tags geradas automaticamente:
+
+```text
+Attack on Titan                       → #Attack_On_Titan
+Parasyte - The Maxim                  → #Parasyte
+Frieren: Beyond Journey's End         → #Frieren
+The 100 Girlfriends Who Really...     → #100_Girlfriends
+```
+
+A tag escolhida fica salva no `tg-upload.json` da obra. Para definir ou corrigir manualmente:
+
+```powershell
+tg-upload "C:\Videos\Attack on Titan" --to anime --search-tag Attack_On_Titan
+```
+
+## Legendas dos episódios
+
+O programa reconhece `SxxExx` em qualquer posição do nome, ordena por temporada/episódio e monta a legenda automaticamente.
+
+Formato:
+
+```text
+#S01E21 - Nome do episódio [1080p • Dublado]
+#Nome_Da_Obra
+```
+
+O estado do áudio é inferido apenas quando as faixas possuem informação suficiente:
+
+- uma faixa em português: `Dublado`;
+- português + outra faixa: `Dual Áudio`;
+- português + três ou mais faixas: `Multi Áudio`;
+- áudio sem português + legenda em português: `Legendado`.
+
+Se a metadata das faixas não permitir concluir com segurança, o rótulo é omitido em vez de inventado.
+
+A qualidade vem do nome (`[720p]`, `[1080p]`, etc.) ou, quando necessário, do `ffprobe`.
+
+## Thumbnails e reprodução no Telegram Web
+
+MP4, M4V, MOV e MKV são enviados como vídeo reproduzível por padrão, sem alterar os bytes do arquivo.
+
+Para evitar o problema em que arquivos válidos apareciam pretos ou com metadata incompleta no Telegram Web, o uploader envia explicitamente:
+
+- duração e resolução obtidas com `ffprobe`;
+- `DocumentAttributeVideo` com streaming habilitado;
+- thumbnail JPEG compatível com o Telegram.
+
+A thumbnail segue esta prioridade:
+
+1. **capa/pôster do catálogo da obra** (AniList ou TMDB);
+2. um frame do próprio vídeo como fallback.
+
+Assim episódios da mesma obra ficam visualmente consistentes. Filmes usam o pôster do próprio filme quando disponível.
+
+O MKV original também é preservado. Para forçar qualquer mídia a ser enviada como arquivo/documento:
+
+```powershell
+tg-upload "C:\Videos\Minha Serie" --document
+```
+
+## Catálogo
+
+- **Animes:** AniList.
+- **Desenhos, séries e filmes:** TMDB.
+
+A apresentação da obra e o pôster ficam associados ao `tg-upload.json` local da biblioteca.
+
+Modos de catálogo:
+
+```powershell
+tg-upload "C:\Videos\Parasyte" --to anime --media-info auto
+tg-upload "C:\Videos\Parasyte" --to anime --media-info refresh
+tg-upload "C:\Videos\Parasyte" --to anime --media-info off
+```
+
+`auto` reutiliza o cache quando existe; `refresh` permite escolher novamente; `off` não publica apresentação.
+
+Para TMDB, configure uma vez:
+
+```powershell
+tg-upload set-tmdb-token
+```
+
+A credencial fica somente no computador.
 
 ## Instalação
 
-Requer Windows e Python 3.10+. Para o ajuste automático de compatibilidade de MKV, também é recomendado ter `ffmpeg` e `ffprobe` no PATH; se eles não estiverem disponíveis, o instalador apenas avisa e o restante do uploader continua funcionando.
+Requer Windows e Python 3.10+. `ffmpeg` e `ffprobe` são fortemente recomendados para metadata, classificação das faixas e thumbnails.
 
-Abra o PowerShell e rode:
+No PowerShell:
 
 ```powershell
 $setup = Join-Path $env:TEMP "tg-upload-setup.ps1"
@@ -34,270 +128,158 @@ powershell -NoProfile -ExecutionPolicy Bypass -File $setup
 Remove-Item $setup -Force -ErrorAction SilentlyContinue
 ```
 
-O instalador adiciona `tg-upload` ao PATH do usuário. Depois, em qualquer terminal:
-
-```powershell
-tg-upload "C:\Videos\Minha Serie\Season 01"
-```
-
-Para atualizar:
+Depois, para atualizar:
 
 ```powershell
 tg-upload update
 ```
 
-O updater baixa o `setup.ps1` para um arquivo temporário antes de executá-lo; ele não usa `Invoke-Expression`/`iex`.
+O executável e os módulos ficam em `%LOCALAPPDATA%\telegram-media-upload`; credenciais, sessão e estado ficam em `%USERPROFILE%\.telegram-media-upload`.
 
 ## Primeiro uso
 
-No primeiro envio real, o programa pede seu `api_id` e `api_hash` do Telegram. Esses dados não ficam no repositório: são salvos somente no computador em:
+No primeiro envio real, o programa pede `api_id` e `api_hash` do Telegram, obtidos em `my.telegram.org` > **API development tools**.
+
+Eles são armazenados localmente em:
 
 ```text
 %USERPROFILE%\.telegram-media-upload\config.json
 ```
 
-A sessão do Telethon e o histórico de uploads também ficam nessa pasta.
-
-Para obter `api_id` e `api_hash`, use `my.telegram.org` > **API development tools**.
-
-Na primeira vez em que não houver canal padrão configurado, o programa lista os canais/grupos disponíveis na sua conta e pede que você escolha um. A escolha fica salva apenas localmente.
-
-## Canal padrão
-
-Ver o canal padrão atual:
-
-```powershell
-tg-upload channel
-```
-
-Escolher outro canal padrão interativamente:
-
-```powershell
-tg-upload set-channel
-```
-
-Ou definir diretamente por username/ID:
-
-```powershell
-tg-upload set-channel @meucanal
-tg-upload set-channel -1001234567890
-```
-
-Ver os caminhos e o estado da configuração sem exibir o `api_hash`:
+Ver configuração sem exibir o API hash:
 
 ```powershell
 tg-upload config
 ```
 
-Para usar outro canal somente em uma execução, sem trocar o padrão:
-
-```powershell
-tg-upload "C:\Videos\Minha Serie" --channel -1001234567890
-```
-
 ## Destinos e tópicos
 
-Para uma biblioteca que mistura obras pequenas/médias em tópicos e deixa obras grandes em canais próprios, salve atalhos de destino.
-
-Exemplo para o tópico **Animes** do grupo **Biblioteca**:
-
-```powershell
-tg-upload set-destination anime
-```
-
-O comando abre um menu pesquisável para canais/grupos e, se o grupo escolhido tiver tópicos, abre também um menu pesquisável para os tópicos disponíveis. Tudo fica salvo apenas no `config.json` local.
-
-Você também pode informar diretamente:
+Crie atalhos para as categorias uma vez:
 
 ```powershell
 tg-upload set-destination anime --channel -1001234567890 --topic "Animes"
 tg-upload set-destination desenho --channel -1001234567890 --topic "Desenhos"
+tg-upload set-destination serie --channel -1001234567890 --topic "Séries"
 tg-upload set-destination filme --channel -1001234567890 --topic "Filmes"
 ```
 
-Depois o upload fica simples:
+Se canal/tópico forem omitidos, o programa abre menus pesquisáveis.
+
+Uso depois disso:
 
 ```powershell
-tg-upload "C:\Videos\Kiseijuu" --to anime
+tg-upload "C:\Videos\Parasyte" --to anime
 tg-upload "C:\Videos\Bob Esponja" --to desenho
+tg-upload "C:\Videos\Minha Serie" --to serie
 tg-upload "C:\Videos\Filmes\Meu Filme.mp4" --to filme
 ```
 
-Para uma obra grande que tenha canal próprio, use outro atalho sem tópico:
+Para uma franquia grande em canal próprio:
 
 ```powershell
 tg-upload set-destination one-piece --channel @meu_canal_onepiece
 tg-upload "C:\Videos\One Piece" --to one-piece
 ```
 
-Assim o mesmo programa suporta os dois modelos:
-
-```text
-Biblioteca (supergrupo)
-├─ Animes   <- --to anime
-├─ Desenhos <- --to desenho
-└─ Filmes   <- --to filme
-
-One Piece (canal próprio) <- --to one-piece
-```
-
-Ver os atalhos salvos:
+Ver/remover destinos:
 
 ```powershell
 tg-upload destinations
-```
-
-Remover um:
-
-```powershell
 tg-upload remove-destination anime
 ```
 
-Também é possível escolher um tópico só para uma execução, sem salvar atalho:
+O histórico diferencia canal e tópico, então a mesma mídia em dois destinos é tratada separadamente.
 
-```powershell
-tg-upload "C:\Videos\Kiseijuu" --channel -1001234567890 --topic "Animes"
+## Upload rápido
+
+O padrão é **8 workers por arquivo**. Eles mantêm várias partes em voo pela conexão autenticada do próprio cliente; episódios diferentes não são enviados simultaneamente, preservando a ordem da série.
+
+O progresso mostra porcentagem, tamanho, velocidade e ETA:
+
+```text
+S01E01:  42% (298.0/708.0 MiB) • 7.81 MiB/s • ETA 00:52
 ```
 
-O histórico diferencia canal **e tópico**. Portanto, enviar o mesmo arquivo para `Biblioteca > Animes` e depois para outro tópico é tratado como dois destinos diferentes.
-
-## Uso
-
-Antes do primeiro envio real, vale conferir o lote:
+Alterar para uma execução:
 
 ```powershell
-tg-upload "C:\Videos\Minha Serie" --dry-run
+tg-upload "C:\Videos\Minha Serie" --upload-workers 4
 ```
 
-Enviar uma temporada inteira:
+Valores aceitos: `1` a `8`. Se houver falha no modo rápido, o programa tenta o modo compatível do Telethon.
+
+`TG_UPLOAD_WORKERS` ou `"upload_workers"` no `config.json` podem sobrescrever o padrão.
+
+## MKV e playback-fix
+
+O comportamento normal agora é **preservar o MKV original** e enviá-lo com metadata/thumbnail apropriadas para reprodução inline.
+
+O antigo ajuste de compatibilidade continua disponível apenas quando solicitado explicitamente:
 
 ```powershell
-tg-upload "C:\Videos\Minha Serie\Season 01"
+tg-upload "C:\Videos\Minha Serie" --playback-fix auto
 ```
 
-Enviar a série inteira, procurando vídeos recursivamente nas subpastas:
+Esse modo pode preparar uma cópia temporária quando a mídia exigir conversão. O original nunca é sobrescrito.
+
+Sem essa opção, o padrão é equivalente a:
 
 ```powershell
-tg-upload "C:\Videos\Minha Serie"
+tg-upload "C:\Videos\Minha Serie" --playback-fix off
 ```
 
-Exemplo de estrutura:
+## Envio em lote e estado
+
+Uma estrutura típica:
 
 ```text
 Minha Serie\
 ├─ Season 01\
 │  ├─ S01E01 - Título.mp4
 │  └─ S01E02 - Título.mp4
-├─ Season 02\
-│  ├─ S02E01 - Título.mp4
-│  └─ S02E02 - Título.mp4
+└─ Season 02\
+   ├─ S02E01 - Título.mp4
+   └─ S02E02 - Título.mp4
 ```
 
-Os arquivos são ordenados por temporada e episódio. Antes do primeiro episódio de cada temporada, o `tg-upload` publica o separador correspondente, a menos que seja usado `--no-season-header`.
-
-Enviar novamente arquivos que já constam no estado local:
+Enviar tudo recursivamente:
 
 ```powershell
-tg-upload "C:\Videos\Minha Serie\Season 01" --force
+tg-upload "C:\Videos\Minha Serie" --to serie
 ```
 
-Enviar como documento em vez de vídeo reproduzível no feed:
+Prévia sem enviar:
 
 ```powershell
-tg-upload "C:\Videos\Minha Serie\Season 01" --document
+tg-upload "C:\Videos\Minha Serie" --dry-run
 ```
 
-Não publicar separadores de temporada:
+Reenviar arquivos já registrados:
 
 ```powershell
-tg-upload "C:\Videos\Minha Serie\Season 01" --no-season-header
+tg-upload "C:\Videos\Minha Serie" --force
 ```
 
-## Upload rápido
-
-Por padrão, cada arquivo usa até **4 conexões MTProto em paralelo** para enviar partes diferentes do mesmo arquivo, sem enviar episódios diferentes ao mesmo tempo. Assim a ordem da série continua previsvisível e o throughput tende a ficar bem melhor do que no upload sequencial puro do Telethon.
-
-O instalador também instala `cryptg`, usado automaticamente pelo Telethon para acelerar a criptografia MTProto.
-
-Durante o upload, o progresso mostra porcentagem, volume enviado, velocidade média e ETA:
-
-```text
-S01E01:  42% (298.0/708.0 MiB) • 7.81 MiB/s • ETA 00:52
-```
-
-Para mudar a quantidade de conexões apenas nesta execução:
+Republicar separador de temporada:
 
 ```powershell
-tg-upload "C:\Videos\Minha Serie" --upload-workers 6
+tg-upload "C:\Videos\Minha Serie" --force-header
 ```
 
-São aceitos valores de `1` a `8`. Usar `1` desativa o modo paralelo e volta ao upload compatível do Telethon:
+Não publicar separadores:
 
 ```powershell
-tg-upload "C:\Videos\Minha Serie" --upload-workers 1
+tg-upload "C:\Videos\Minha Serie" --no-season-header
 ```
 
-Também é possível definir `TG_UPLOAD_WORKERS` ou adicionar `"upload_workers": 4` ao `config.json` local. Se o modo rápido falhar, o programa tenta automaticamente o modo compatível; se o Telegram pedir `FloodWait`, ele aguarda e reduz o restante daquela tentativa para o modo compatível.
-
-## Compatibilidade de MKV com o player do Telegram
-
-O modo padrão `--playback-fix auto` inspeciona arquivos `.mkv` com `ffprobe` antes do envio. Ele não altera o arquivo original. Quando detecta uma combinação que tende a causar problemas no player do Telegram, cria uma cópia temporária, envia essa cópia e a remove ao terminar.
-
-A heurística atual é conservadora e baseada em combinações que foram testadas na prática:
-
-- vídeo fora de H.264 8-bit (`yuv420p`) é convertido para H.264 High;
-- se houver mais de duas faixas de áudio, somente duas são mantidas na cópia temporária;
-- áudio selecionado que não seja AAC-LC é convertido para AAC-LC 48 kHz;
-- legendas, anexos/fontes, capítulos e metadados continuam no MKV sempre que o FFmpeg consegue copiá-los;
-- se H.264 precisar ser gerado, o programa testa NVENC de verdade e usa `h264_nvenc` quando a GPU/driver suportam; caso contrário, cai para `libx264` na CPU.
-
-Quando existem mais de duas faixas de áudio, por padrão a faixa marcada como `default` vem primeiro e as demais seguem a ordem original. É possível definir prioridade de idiomas:
-
-```powershell
-tg-upload "C:\Videos\Minha Serie" --audio-languages por,jpn
-```
-
-Também é possível configurar `TG_AUDIO_LANGUAGES=por,jpn` ou `"audio_languages": ["por", "jpn"]` no `config.json` local.
-
-Para desativar completamente o ajuste e enviar o MKV original:
-
-```powershell
-tg-upload "C:\Videos\Minha Serie" --playback-fix off
-```
-
-A configuração também pode ser persistida com `TG_PLAYBACK_FIX=off` ou `"playback_fix": "off"` no `config.json`.
-
-O modo `--document` sempre envia o original e pula essa preparação, porque nesse caso a prioridade não é reprodução inline.
-
-## Organização
-
-O programa reconhece `SxxExx` em qualquer posição do nome do arquivo. O código do episódio é usado para ordenar e montar a hashtag; o restante do nome é preservado o máximo possível.
-
-A qualidade não é inventada pelo `tg-upload`, mas também não é removida quando já existe no arquivo. Exemplos:
-
-```text
-Parasyte - The Maxim - S01E01.mkv
-→ #S01E01
-
-Parasyte - The Maxim - S01E01 [1080p].mkv
-→ #S01E01 [1080p]
-
-S01E02 - Bolhas de sabão + Calça rasgada [720p].mp4
-→ #S01E02 - Bolhas de sabão + Calça rasgada [720p]
-```
-
-O uploader também não transforma `_`, `/` ou outros separadores em `+`. Essa normalização pertence ao programa que criou o arquivo, como o `video-dl`.
-
-Os uploads concluídos são registrados localmente em:
+Uploads concluídos ficam registrados em:
 
 ```text
 %USERPROFILE%\.telegram-media-upload\state.json
 ```
 
-Assim, executar o mesmo lote novamente não reenviará os episódios já registrados, a menos que seja usado `--force`.
+Por isso, repetir o mesmo comando não reenvia automaticamente episódios já concluídos.
 
-## Privacidade e segurança
+## Privacidade
 
-Nenhuma credencial do Telegram, telefone, código de login, sessão ou ID de canal precisa ser armazenado no GitHub. O `.gitignore` também ignora `.env`, arquivos `.session`, `config.json`, `state.json` e a pasta local `.telegram-media-upload`.
-
-Por isso, o código pode ser mantido em um repositório público sem publicar esses dados pessoais. O próprio nome da conta do GitHub e o histórico público de commits continuam, naturalmente, visíveis no GitHub.
+API ID/hash, telefone, códigos de login, sessão do Telegram, token do TMDB, IDs privados e histórico de upload não precisam ser publicados no GitHub. O repositório contém apenas o código; os dados de execução permanecem no computador do usuário.

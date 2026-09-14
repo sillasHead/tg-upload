@@ -1,12 +1,14 @@
+import asyncio
 import unittest
 from dataclasses import asdict
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 from telethon import types
 
 import anime_catalog
+import entrypoint
 import launcher
 import runtime  # aplica a política usada pelo executável instalado
 
@@ -31,13 +33,40 @@ class LauncherTests(unittest.TestCase):
     def test_streaming_flag_depends_on_container(self):
         self.assertTrue(launcher._supports_streaming(Path("episode.mp4"), False))
         self.assertTrue(launcher._supports_streaming(Path("episode.m4v"), False))
-        self.assertTrue(launcher._supports_streaming(Path("episode.mkv"), False))
+        self.assertFalse(launcher._supports_streaming(Path("episode.mkv"), False))
         self.assertFalse(launcher._supports_streaming(Path("episode.avi"), False))
         self.assertFalse(launcher._supports_streaming(Path("episode.mp4"), True))
 
-    def test_mkv_receives_explicit_video_attributes_and_streaming(self):
+        with patch.object(launcher, "_ACTIVE_PLAYBACK_FIX", "auto"):
+            self.assertTrue(launcher._supports_streaming(Path("episode.mkv"), False))
+
+    def test_mkv_default_send_forces_document(self):
+        item = SimpleNamespace(path=Path("episode.mkv"))
+        original_send = AsyncMock()
+
+        with patch.object(entrypoint, "_ORIGINAL_SEND_MEDIA", original_send):
+            asyncio.run(
+                entrypoint._send_media(
+                    "client",
+                    "entity",
+                    item,
+                    False,
+                    123,
+                )
+            )
+
+        original_send.assert_awaited_once_with(
+            "client",
+            "entity",
+            item,
+            True,
+            123,
+        )
+
+    def test_mkv_playback_fix_receives_explicit_video_attributes_and_streaming(self):
         initial = [types.DocumentAttributeFilename("episode.mkv")]
         with (
+            patch.object(launcher, "_ACTIVE_PLAYBACK_FIX", "auto"),
             patch.object(
                 launcher.upload.utils,
                 "get_attributes",

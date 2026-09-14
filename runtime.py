@@ -7,7 +7,6 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from functools import lru_cache
-from pathlib import Path
 
 # O Telethon se reconecta sozinho em quedas transitórias. Esses logs podem aparecer
 # no meio dos menus do InquirerPy e corromper visualmente a interface. Exceções reais
@@ -154,45 +153,21 @@ media_catalog.search_tmdb = _search_tmdb_resilient
 import entrypoint
 
 
-# Política validada nos testes reais:
+# Política validada para a biblioteca:
 # - 8 workers por padrão;
-# - MP4/M4V/MOV/MKV enviados como vídeo quando --document não é usado;
-# - MKV é preservado byte por byte por padrão (playback-fix continua off);
-# - metadata + thumbnail explícita cuidam da reprodução no Telegram Web.
+# - MP4/M4V/MOV continuam como vídeo reproduzível;
+# - MKV é enviado como documento por padrão, preservando o arquivo original byte por byte;
+# - --playback-fix auto continua disponível apenas como opção explícita de compatibilidade.
 entrypoint.launcher.DEFAULT_UPLOAD_WORKERS = 8
 entrypoint.launcher._ACTIVE_UPLOAD_WORKERS = 8
 entrypoint.launcher.DEFAULT_PLAYBACK_FIX = "off"
 entrypoint.launcher._ACTIVE_PLAYBACK_FIX = "off"
-entrypoint.launcher.STREAMABLE_EXTENSIONS = {".mp4", ".m4v", ".mov", ".mkv"}
+entrypoint.launcher.STREAMABLE_EXTENSIONS = {".mp4", ".m4v", ".mov"}
 
-
-def _supports_streaming(path, as_document: bool) -> bool:
-    if as_document:
-        return False
-    suffix = Path(path).suffix.casefold()
-    return suffix in entrypoint.launcher.STREAMABLE_EXTENSIONS
-
-
-async def _send_media_preserving_original(
-    client,
-    entity,
-    item,
-    as_document: bool,
-    topic_id: int | None = None,
-) -> None:
-    # Bypassa a regra antiga do entrypoint que forçava MKV a documento. A rotina
-    # base mantém retry, workers e eventual --playback-fix auto quando solicitado.
-    await entrypoint._ORIGINAL_SEND_MEDIA(
-        client,
-        entity,
-        item,
-        as_document,
-        topic_id,
-    )
-
-
-entrypoint.launcher._supports_streaming = _supports_streaming
-entrypoint.launcher._send_media = _send_media_preserving_original
+# O entrypoint já implementa a política de MKV original como documento. Reaplicamos
+# explicitamente aqui porque runtime.py é a camada final carregada pelo executável.
+entrypoint.launcher._supports_streaming = entrypoint._supports_streaming
+entrypoint.launcher._send_media = entrypoint._send_media
 
 import telegram_video
 

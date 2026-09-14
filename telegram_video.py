@@ -8,9 +8,11 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Iterator
 
+import library_layout
+
 
 _LAUNCHER = None
-_STREAMABLE_VIDEO_EXTENSIONS = {".mp4", ".m4v", ".mov"}
+_STREAMABLE_VIDEO_EXTENSIONS = {".mp4", ".m4v", ".mov", ".mkv"}
 
 
 def _launcher():
@@ -20,12 +22,7 @@ def _launcher():
 
 
 def _probe_video(path: Path) -> dict[str, Any] | None:
-    """Lê a metadata que será enviada ao Telegram usando ffprobe.
-
-    Não dependemos do hachoir para o card do vídeo porque alguns MP4 válidos
-    acabam recebendo duration/dimensões incompletas em clientes Web. O ffprobe é
-    também o mesmo analisador que já usamos em outras rotas do projeto.
-    """
+    """Lê duração/dimensões confiáveis para o atributo de vídeo do Telegram."""
     ffprobe = shutil.which("ffprobe")
     if not ffprobe:
         return None
@@ -79,27 +76,12 @@ def _probe_video(path: Path) -> dict[str, Any] | None:
         return None
 
 
-def _mkv_video_test_enabled() -> bool:
-    launcher = _launcher()
-    args = getattr(launcher, "_ACTIVE_ARGS", None)
-    return bool(getattr(args, "mkv_video_test", False))
-
-
 def _is_streamable_video(path: Path, as_document: bool) -> bool:
-    if as_document:
-        return False
-    suffix = path.suffix.casefold()
-    if suffix == ".mkv":
-        return _mkv_video_test_enabled()
-    return suffix in _STREAMABLE_VIDEO_EXTENSIONS
+    return not as_document and path.suffix.casefold() in _STREAMABLE_VIDEO_EXTENSIONS
 
 
 def _media_attributes(path: Path, as_document: bool):
-    """Cria os mesmos campos essenciais que um cliente oficial envia.
-
-    Mantemos filename/MIME inferidos pelo Telethon, mas para vídeo streamable
-    substituímos DocumentAttributeVideo por valores confiáveis do ffprobe.
-    """
+    """Envia metadata explícita para o Telegram Web interpretar o vídeo corretamente."""
     launcher = _launcher()
     supports_streaming = launcher._supports_streaming(path, as_document)
     attributes, mime_type = launcher.upload.utils.get_attributes(
@@ -136,27 +118,33 @@ def _media_attributes(path: Path, as_document: bool):
     return attributes, mime_type, True
 
 
-def _render_thumbnail(ffmpeg: str, source: Path, output: Path, seek: float, side: int, quality: int) -> bool:
-    command = [
-        ffmpeg,
-        "-hide_banner",
-        "-loglevel",
-        "error",
-        "-y",
-        "-ss",
-        f"{seek:.3f}",
-        "-i",
-        str(source),
-        "-map",
-        "0:v:0",
-        "-frames:v",
-        "1",
-        "-vf",
-        f"scale={side}:{side}:force_original_aspect_ratio=decrease",
-        "-q:v",
-        str(quality),
-        str(output),
-    ]
+def _render_thumbnail(
+    ffmpeg: str,
+    source: Path,
+    output: Path,
+    *,
+    side: int,
+    quality: int,
+    seek: float | None = None,
+) -> bool:
+    command = [ffmpeg, "-hide_banner", "-loglevel", "error", "-y"]
+    if seek is not None:
+        command.extend(["-ss", f"{seek:.3f}"])
+    command.extend(
+        [
+            "-i",
+            str(source),
+            "-map",
+            "0:v:0",
+            "-frames:v",
+            "1",
+            "-vf",
+            f"scale={side}:{side}:force_original_aspect_ratio=decrease",
+            "-q:v",
+            str(quality),
+            str(output),
+        ]
+    )
     try:
         subprocess.run(
             command,
@@ -170,13 +158,44 @@ def _render_thumbnail(ffmpeg: str, source: Path, output: Path, seek: float, side
         return False
 
 
+def _make_small_jpeg(
+    ffmpeg: str,
+    source: Path,
+    output: Path,
+    *,
+    seek: float | None,
+) -> bool:
+    attempts = (
+        (320, 7),
+        (320, 12),
+        (280, 14),
+        (240, 16),
+    )
+    created = False
+    for side, quality in attempts:
+        output.unlink(missing_ok=True)
+        if not _render_thumbnail(
+            ffmpeg,
+            source,
+            output,
+            side=side,
+            quality=quality,
+            seek=seek,
+        ):
+            continue
+        created = True
+        if output.stat().st_size <= 20 * 1024:
+            break
+    return created
+
+
 @contextmanager
 def _video_thumbnail(path: Path, as_document: bool) -> Iterator[Path | None]:
-    """Gera um JPEG pequeno para o campo `thumb` de InputMediaUploadedDocument.
+    """Gera a thumbnail do vídeo.
 
-    Telegram Desktop prepara thumbnails com lado máximo de 320 px. A documentação
-    do Telethon recomenda JPEG <= 320x320 e, na prática, abaixo de ~20 KiB. Fazemos
-    algumas tentativas rápidas sem tocar no vídeo original.
+    Prioridade: capa da obra/temporada do catálogo. Se ela não existir, usa um frame
+    do próprio vídeo. Assim a biblioteca fica consistente sem perder o fallback que
+    corrigiu a reprodução no Telegram Web.
     """
     if not _is_streamable_video(path, as_document):
         yield None
@@ -188,32 +207,21 @@ def _video_thumbnail(path: Path, as_document: bool) -> Iterator[Path | None]:
         yield None
         return
 
-    # Evita o primeiro frame preto/transition: usa até 5% do vídeo, limitado a 15 s.
-    seek = min(max(metadata["duration"] * 0.05, 1.0), 15.0)
-
     with tempfile.TemporaryDirectory(prefix="tg-upload-thumb-") as temp_dir:
         output = Path(temp_dir) / "thumb.jpg"
-        attempts = (
-            (320, 7),
-            (320, 12),
-            (280, 14),
-            (240, 16),
-        )
 
-        created = False
-        for side, quality in attempts:
-            output.unlink(missing_ok=True)
-            if not _render_thumbnail(ffmpeg, path, output, seek, side, quality):
-                continue
-            created = True
-            if output.stat().st_size <= 20 * 1024:
-                break
-
-        if not created:
-            yield None
+        cover = library_layout.poster_source(path)
+        if cover is not None and _make_small_jpeg(ffmpeg, cover, output, seek=None):
+            yield output
             return
 
-        yield output
+        # Fallback: evita primeiro frame preto/transição.
+        seek = min(max(metadata["duration"] * 0.05, 1.0), 15.0)
+        if _make_small_jpeg(ffmpeg, path, output, seek=seek):
+            yield output
+            return
+
+        yield None
 
 
 def _verify_video_message(message, expected_streaming: bool) -> None:
@@ -279,8 +287,6 @@ async def _send_fast(client, entity, item, as_document: bool, topic_id: int | No
     launcher = _launcher()
     attributes, mime_type, supports_streaming = _media_attributes(item.path, as_document)
 
-    # Prepara o thumbnail antes do upload grande; se ffmpeg/ffprobe não estiverem
-    # disponíveis, o upload continua com a compatibilidade antiga como fallback.
     with _video_thumbnail(item.path, as_document) as thumb:
         uploaded_file = await launcher.fast_upload.upload_file_parallel(
             client,
@@ -309,8 +315,6 @@ def install(launcher) -> None:
     global _LAUNCHER
     _LAUNCHER = launcher
 
-    # _send_media resolve estes nomes no módulo launcher em tempo de execução.
-    # Assim os modos 1-worker e N-workers passam pela mesma embalagem de vídeo.
     launcher._media_attributes = _media_attributes
     launcher._send_compatible = _send_compatible
     launcher._send_fast = _send_fast

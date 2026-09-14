@@ -31,27 +31,43 @@ class LauncherTests(unittest.TestCase):
     def test_streaming_flag_depends_on_container(self):
         self.assertTrue(launcher._supports_streaming(Path("episode.mp4"), False))
         self.assertTrue(launcher._supports_streaming(Path("episode.m4v"), False))
-        self.assertFalse(launcher._supports_streaming(Path("episode.mkv"), False))
+        self.assertTrue(launcher._supports_streaming(Path("episode.mkv"), False))
         self.assertFalse(launcher._supports_streaming(Path("episode.avi"), False))
         self.assertFalse(launcher._supports_streaming(Path("episode.mp4"), True))
 
-    def test_mkv_keeps_telethon_attributes_without_streaming(self):
+    def test_mkv_receives_explicit_video_attributes_and_streaming(self):
         initial = [types.DocumentAttributeFilename("episode.mkv")]
-        with patch.object(
-            launcher.upload.utils,
-            "get_attributes",
-            return_value=(initial, "video/x-matroska"),
+        with (
+            patch.object(
+                launcher.upload.utils,
+                "get_attributes",
+                return_value=(initial, "video/x-matroska"),
+            ),
+            patch(
+                "telegram_video._probe_video",
+                return_value={
+                    "width": 1920,
+                    "height": 1080,
+                    "duration": 1380.5,
+                    "codec": "hevc",
+                },
+            ),
         ):
             attributes, mime_type, supports_streaming = launcher._media_attributes(
                 Path("episode.mkv"), False
             )
 
-        self.assertEqual(attributes, initial)
-        self.assertEqual(mime_type, "video/x-matroska")
-        self.assertFalse(supports_streaming)
-        self.assertFalse(
-            any(isinstance(attribute, types.DocumentAttributeVideo) for attribute in attributes)
+        video = next(
+            attribute
+            for attribute in attributes
+            if isinstance(attribute, types.DocumentAttributeVideo)
         )
+        self.assertEqual(mime_type, "video/x-matroska")
+        self.assertTrue(supports_streaming)
+        self.assertTrue(video.supports_streaming)
+        self.assertEqual(video.w, 1920)
+        self.assertEqual(video.h, 1080)
+        self.assertAlmostEqual(float(video.duration), 1380.5)
 
     def test_audio_languages_parser_accepts_string_and_list(self):
         self.assertEqual(launcher._parse_audio_languages("por,jpn"), ("por", "jpn"))

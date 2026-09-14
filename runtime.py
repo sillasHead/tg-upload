@@ -160,6 +160,76 @@ media_catalog.search_tmdb = _search_tmdb_resilient
 import entrypoint
 
 
+# Teste opt-in: mantém o MKV original byte por byte, mas o envia como vídeo com
+# supports_streaming + DocumentAttributeVideo + thumbnail JPEG. O comportamento
+# padrão de MKV como documento continua inalterado quando a flag não é usada.
+_ORIGINAL_RUNTIME_BUILD_PARSER = entrypoint.launcher._build_parser
+_ORIGINAL_RUNTIME_SUPPORTS_STREAMING = entrypoint.launcher._supports_streaming
+_ORIGINAL_RUNTIME_SEND_MEDIA = entrypoint.launcher._send_media
+
+
+def _build_parser_with_mkv_video_test():
+    parser = _ORIGINAL_RUNTIME_BUILD_PARSER()
+    parser.add_argument(
+        "--mkv-video-test",
+        action="store_true",
+        help=(
+            "Teste experimental: envia MKV original como vídeo com metadata e thumbnail, "
+            "sem converter nem alterar o arquivo."
+        ),
+    )
+    return parser
+
+
+def _mkv_video_test_enabled() -> bool:
+    args = getattr(entrypoint.launcher, "_ACTIVE_ARGS", None)
+    return bool(getattr(args, "mkv_video_test", False))
+
+
+def _supports_streaming_with_mkv_test(path, as_document: bool) -> bool:
+    if (
+        not as_document
+        and getattr(path, "suffix", str(path)[str(path).rfind(".") :]).casefold() == ".mkv"
+        and _mkv_video_test_enabled()
+    ):
+        return True
+    return _ORIGINAL_RUNTIME_SUPPORTS_STREAMING(path, as_document)
+
+
+async def _send_media_with_mkv_video_test(
+    client,
+    entity,
+    item,
+    as_document: bool,
+    topic_id: int | None = None,
+) -> None:
+    if item.path.suffix.casefold() == ".mkv" and _mkv_video_test_enabled() and not as_document:
+        print("MKV teste: original sem conversão • vídeo/streaming • thumbnail explícita")
+        # Bypassa somente a regra do entrypoint que força MKV a documento. A rotina
+        # base continua fazendo todo o resto (retry, workers, estado e progress).
+        await entrypoint._ORIGINAL_SEND_MEDIA(
+            client,
+            entity,
+            item,
+            False,
+            topic_id,
+        )
+        return
+
+    await _ORIGINAL_RUNTIME_SEND_MEDIA(
+        client,
+        entity,
+        item,
+        as_document,
+        topic_id,
+    )
+
+
+entrypoint.launcher._build_parser = _build_parser_with_mkv_video_test
+entrypoint.launcher._supports_streaming = _supports_streaming_with_mkv_test
+entrypoint.launcher._send_media = _send_media_with_mkv_video_test
+
+
 def _media_attributes_preserving_telethon(path, as_document: bool):
     """Mantém os atributos completos que o Telethon extrai do MP4.
 

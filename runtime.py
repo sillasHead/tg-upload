@@ -221,11 +221,15 @@ async def _send_compatible_native(
     )
 
 
-# A mesma política também é usada pelo upload rápido: como ele entrega um InputFile
-# já enviado, precisamos fornecer atributos, mas agora preservamos os que o Telethon
-# extraiu em vez de substituí-los por uma versão mínima criada manualmente.
+# Mantemos estes fallbacks históricos instalados primeiro. O módulo telegram_video
+# abaixo os substitui pela embalagem de vídeo baseada no comportamento dos clientes
+# oficiais (metadata explícita via ffprobe + thumbnail JPEG).
 entrypoint.launcher._media_attributes = _media_attributes_preserving_telethon
 entrypoint.launcher._send_compatible = _send_compatible_native
+
+import telegram_video
+
+telegram_video.install(entrypoint.launcher)
 
 
 def main() -> int:

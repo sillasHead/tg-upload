@@ -160,6 +160,74 @@ media_catalog.search_tmdb = _search_tmdb_resilient
 import entrypoint
 
 
+def _media_attributes_preserving_telethon(path, as_document: bool):
+    """Mantém os atributos completos que o Telethon extrai do MP4.
+
+    O launcher antigo removia DocumentAttributeVideo e recriava um atributo mínimo
+    via ffprobe. Isso descartava flags/campos que o Telegram usa no tratamento do
+    vídeo. Só recorremos ao ffprobe quando o Telethon realmente não conseguiu criar
+    um atributo de vídeo.
+    """
+    launcher = entrypoint.launcher
+    supports_streaming = launcher._supports_streaming(path, as_document)
+    attributes, mime_type = launcher.upload.utils.get_attributes(
+        str(path),
+        force_document=as_document,
+        supports_streaming=supports_streaming,
+    )
+
+    if as_document:
+        return attributes, mime_type, supports_streaming
+
+    if any(isinstance(attribute, launcher.types.DocumentAttributeVideo) for attribute in attributes):
+        return attributes, mime_type, supports_streaming
+
+    metadata = launcher._ffprobe_video(path)
+    if metadata:
+        attributes = list(attributes)
+        attributes.append(
+            launcher.types.DocumentAttributeVideo(
+                duration=metadata["duration"],
+                w=metadata["width"],
+                h=metadata["height"],
+                round_message=False,
+                supports_streaming=supports_streaming,
+            )
+        )
+
+    return attributes, mime_type, supports_streaming
+
+
+async def _send_compatible_native(
+    client,
+    entity,
+    item,
+    as_document: bool,
+    topic_id: int | None,
+    reporter,
+) -> None:
+    # No modo de 1 worker passamos o caminho diretamente ao Telethon e deixamos
+    # send_file extrair MIME e DocumentAttributeVideo sozinho, como no fluxo nativo.
+    # Isso evita sobrescrever metadata de vídeo válida com atributos incompletos.
+    supports_streaming = entrypoint.launcher._supports_streaming(item.path, as_document)
+    await client.send_file(
+        entity,
+        str(item.path),
+        caption=item.caption,
+        force_document=as_document,
+        supports_streaming=supports_streaming,
+        reply_to=topic_id,
+        progress_callback=reporter,
+    )
+
+
+# A mesma política também é usada pelo upload rápido: como ele entrega um InputFile
+# já enviado, precisamos fornecer atributos, mas agora preservamos os que o Telethon
+# extraiu em vez de substituí-los por uma versão mínima criada manualmente.
+entrypoint.launcher._media_attributes = _media_attributes_preserving_telethon
+entrypoint.launcher._send_compatible = _send_compatible_native
+
+
 def main() -> int:
     special = entrypoint._catalog_special_command()
     if special is not None:

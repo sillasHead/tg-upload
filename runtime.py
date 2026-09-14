@@ -7,6 +7,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from functools import lru_cache
+from pathlib import Path
 
 # O Telethon se reconecta sozinho em quedas transitórias. Esses logs podem aparecer
 # no meio dos menus do InquirerPy e corromper visualmente a interface. Exceções reais
@@ -92,12 +93,9 @@ def _query_variants(search: str) -> list[str]:
         variants.append(value)
 
     add(original)
-
     translated = _translate_query_en(original)
     add(translated)
 
-    # Se um título localizado não estiver indexado na busca do TMDB, uma forma
-    # abreviada costuma encontrar a franquia/obra correta para o usuário escolher.
     words = original.split()
     if len(words) >= 3:
         add(" ".join(words[: max(2, len(words) - 1)]))
@@ -141,8 +139,6 @@ def _search_tmdb_resilient(
                 seen_ids.add(int(source_id))
             collected.append(item)
 
-        # Uma consulta que já trouxe resultados bons é suficiente. Só usamos as
-        # variantes como fallback quando a busca localizada falha ou traz pouco.
         if len(collected) >= wanted:
             break
 
@@ -153,70 +149,40 @@ def _search_tmdb_resilient(
     return []
 
 
-# search_catalog() consulta o nome global search_tmdb no módulo em tempo de execução,
-# então esta substituição melhora séries/desenhos/filmes sem duplicar o catálogo.
 media_catalog.search_tmdb = _search_tmdb_resilient
 
 import entrypoint
 
 
-# Teste opt-in: mantém o MKV original byte por byte, mas o envia como vídeo com
-# supports_streaming + DocumentAttributeVideo + thumbnail JPEG. O comportamento
-# padrão de MKV como documento continua inalterado quando a flag não é usada.
-_ORIGINAL_RUNTIME_BUILD_PARSER = entrypoint.launcher._build_parser
-_ORIGINAL_RUNTIME_SUPPORTS_STREAMING = entrypoint.launcher._supports_streaming
-_ORIGINAL_RUNTIME_SEND_MEDIA = entrypoint.launcher._send_media
+# Política validada nos testes reais:
+# - 8 workers por padrão;
+# - MP4/M4V/MOV/MKV enviados como vídeo quando --document não é usado;
+# - MKV é preservado byte por byte por padrão (playback-fix continua off);
+# - metadata + thumbnail explícita cuidam da reprodução no Telegram Web.
+entrypoint.launcher.DEFAULT_UPLOAD_WORKERS = 8
+entrypoint.launcher._ACTIVE_UPLOAD_WORKERS = 8
+entrypoint.launcher.DEFAULT_PLAYBACK_FIX = "off"
+entrypoint.launcher._ACTIVE_PLAYBACK_FIX = "off"
+entrypoint.launcher.STREAMABLE_EXTENSIONS = {".mp4", ".m4v", ".mov", ".mkv"}
 
 
-def _build_parser_with_mkv_video_test():
-    parser = _ORIGINAL_RUNTIME_BUILD_PARSER()
-    parser.add_argument(
-        "--mkv-video-test",
-        action="store_true",
-        help=(
-            "Teste experimental: envia MKV original como vídeo com metadata e thumbnail, "
-            "sem converter nem alterar o arquivo."
-        ),
-    )
-    return parser
+def _supports_streaming(path, as_document: bool) -> bool:
+    if as_document:
+        return False
+    suffix = Path(path).suffix.casefold()
+    return suffix in entrypoint.launcher.STREAMABLE_EXTENSIONS
 
 
-def _mkv_video_test_enabled() -> bool:
-    args = getattr(entrypoint.launcher, "_ACTIVE_ARGS", None)
-    return bool(getattr(args, "mkv_video_test", False))
-
-
-def _supports_streaming_with_mkv_test(path, as_document: bool) -> bool:
-    if (
-        not as_document
-        and getattr(path, "suffix", str(path)[str(path).rfind(".") :]).casefold() == ".mkv"
-        and _mkv_video_test_enabled()
-    ):
-        return True
-    return _ORIGINAL_RUNTIME_SUPPORTS_STREAMING(path, as_document)
-
-
-async def _send_media_with_mkv_video_test(
+async def _send_media_preserving_original(
     client,
     entity,
     item,
     as_document: bool,
     topic_id: int | None = None,
 ) -> None:
-    if item.path.suffix.casefold() == ".mkv" and _mkv_video_test_enabled() and not as_document:
-        print("MKV teste: original sem conversão • vídeo/streaming • thumbnail explícita")
-        # Bypassa somente a regra do entrypoint que força MKV a documento. A rotina
-        # base continua fazendo todo o resto (retry, workers, estado e progress).
-        await entrypoint._ORIGINAL_SEND_MEDIA(
-            client,
-            entity,
-            item,
-            False,
-            topic_id,
-        )
-        return
-
-    await _ORIGINAL_RUNTIME_SEND_MEDIA(
+    # Bypassa a regra antiga do entrypoint que forçava MKV a documento. A rotina
+    # base mantém retry, workers e eventual --playback-fix auto quando solicitado.
+    await entrypoint._ORIGINAL_SEND_MEDIA(
         client,
         entity,
         item,
@@ -225,81 +191,16 @@ async def _send_media_with_mkv_video_test(
     )
 
 
-entrypoint.launcher._build_parser = _build_parser_with_mkv_video_test
-entrypoint.launcher._supports_streaming = _supports_streaming_with_mkv_test
-entrypoint.launcher._send_media = _send_media_with_mkv_video_test
-
-
-def _media_attributes_preserving_telethon(path, as_document: bool):
-    """Mantém os atributos completos que o Telethon extrai do MP4.
-
-    O launcher antigo removia DocumentAttributeVideo e recriava um atributo mínimo
-    via ffprobe. Isso descartava flags/campos que o Telegram usa no tratamento do
-    vídeo. Só recorremos ao ffprobe quando o Telethon realmente não conseguiu criar
-    um atributo de vídeo.
-    """
-    launcher = entrypoint.launcher
-    supports_streaming = launcher._supports_streaming(path, as_document)
-    attributes, mime_type = launcher.upload.utils.get_attributes(
-        str(path),
-        force_document=as_document,
-        supports_streaming=supports_streaming,
-    )
-
-    if as_document:
-        return attributes, mime_type, supports_streaming
-
-    if any(isinstance(attribute, launcher.types.DocumentAttributeVideo) for attribute in attributes):
-        return attributes, mime_type, supports_streaming
-
-    metadata = launcher._ffprobe_video(path)
-    if metadata:
-        attributes = list(attributes)
-        attributes.append(
-            launcher.types.DocumentAttributeVideo(
-                duration=metadata["duration"],
-                w=metadata["width"],
-                h=metadata["height"],
-                round_message=False,
-                supports_streaming=supports_streaming,
-            )
-        )
-
-    return attributes, mime_type, supports_streaming
-
-
-async def _send_compatible_native(
-    client,
-    entity,
-    item,
-    as_document: bool,
-    topic_id: int | None,
-    reporter,
-) -> None:
-    # No modo de 1 worker passamos o caminho diretamente ao Telethon e deixamos
-    # send_file extrair MIME e DocumentAttributeVideo sozinho, como no fluxo nativo.
-    # Isso evita sobrescrever metadata de vídeo válida com atributos incompletos.
-    supports_streaming = entrypoint.launcher._supports_streaming(item.path, as_document)
-    await client.send_file(
-        entity,
-        str(item.path),
-        caption=item.caption,
-        force_document=as_document,
-        supports_streaming=supports_streaming,
-        reply_to=topic_id,
-        progress_callback=reporter,
-    )
-
-
-# Mantemos estes fallbacks históricos instalados primeiro. O módulo telegram_video
-# abaixo os substitui pela embalagem de vídeo baseada no comportamento dos clientes
-# oficiais (metadata explícita via ffprobe + thumbnail JPEG).
-entrypoint.launcher._media_attributes = _media_attributes_preserving_telethon
-entrypoint.launcher._send_compatible = _send_compatible_native
+entrypoint.launcher._supports_streaming = _supports_streaming
+entrypoint.launcher._send_media = _send_media_preserving_original
 
 import telegram_video
 
 telegram_video.install(entrypoint.launcher)
+
+import library_layout
+
+library_layout.install(entrypoint)
 
 
 def main() -> int:

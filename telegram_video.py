@@ -79,10 +79,19 @@ def _probe_video(path: Path) -> dict[str, Any] | None:
         return None
 
 
+def _mkv_video_test_enabled() -> bool:
+    launcher = _launcher()
+    args = getattr(launcher, "_ACTIVE_ARGS", None)
+    return bool(getattr(args, "mkv_video_test", False))
+
+
 def _is_streamable_video(path: Path, as_document: bool) -> bool:
     if as_document:
         return False
-    return path.suffix.casefold() in _STREAMABLE_VIDEO_EXTENSIONS
+    suffix = path.suffix.casefold()
+    if suffix == ".mkv":
+        return _mkv_video_test_enabled()
+    return suffix in _STREAMABLE_VIDEO_EXTENSIONS
 
 
 def _media_attributes(path: Path, as_document: bool):

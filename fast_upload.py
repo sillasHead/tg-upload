@@ -10,7 +10,6 @@ from pathlib import Path
 from typing import Callable
 
 from telethon import helpers, utils
-from telethon.network import MTProtoSender
 from telethon.tl.functions.upload import SaveBigFilePartRequest, SaveFilePartRequest
 from telethon.tl.types import InputFile, InputFileBig
 
@@ -87,21 +86,6 @@ async def _notify(callback: ProgressCallback | None, current: int, total: int) -
         await result
 
 
-async def _new_sender(client) -> MTProtoSender:
-    dc = await client._get_dc(client.session.dc_id)
-    sender = MTProtoSender(client.session.auth_key, loggers=client._log)
-    await sender.connect(
-        client._connection(
-            dc.ip_address,
-            dc.port,
-            dc.id,
-            loggers=client._log,
-            proxy=client._proxy,
-        )
-    )
-    return sender
-
-
 async def upload_file_parallel(
     client,
     path: str | os.PathLike[str],
@@ -109,6 +93,13 @@ async def upload_file_parallel(
     workers: int = 4,
     progress_callback: ProgressCallback | None = None,
 ):
+    """Envia partes concorrentemente pela conexão autenticada do próprio cliente.
+
+    `workers` controla quantas Save*FilePartRequest podem ficar em voo ao mesmo
+    tempo. Diferente da implementação anterior, não criamos vários MTProtoSender
+    reutilizando a mesma auth key/sessão. Isso evita conflitos de session ID e
+    mantém o upload rápido sem criar sessões MTProto paralelas frágeis.
+    """
     file_path = Path(path)
     file_size = file_path.stat().st_size
     part_size, part_count, active_workers = upload_plan(file_size, workers)
@@ -116,57 +107,89 @@ async def upload_file_parallel(
     is_large = file_size > 10 * 1024 * 1024
     md5 = None if is_large else hashlib.md5()
 
-    senders: list[MTProtoSender] = []
-    pending: list[asyncio.Task | None] = []
-    pending_sizes: list[int] = []
     uploaded = 0
+    progress_lock = asyncio.Lock()
+    pending: set[asyncio.Task] = set()
 
-    async def finish_lane(index: int) -> None:
+    async def send_part(request, size: int) -> None:
         nonlocal uploaded
-        task = pending[index]
-        if task is None:
+        result = await client(request)
+        if result is False:
+            raise RuntimeError("Telegram recusou uma parte do arquivo.")
+
+        async with progress_lock:
+            uploaded += size
+            await _notify(progress_callback, uploaded, file_size)
+
+    async def collect_done(*, wait_all: bool = False) -> None:
+        nonlocal pending
+        if not pending:
             return
-        await task
-        uploaded += pending_sizes[index]
-        pending[index] = None
-        pending_sizes[index] = 0
-        await _notify(progress_callback, uploaded, file_size)
+
+        if wait_all:
+            done, still_pending = await asyncio.wait(
+                pending,
+                return_when=asyncio.ALL_COMPLETED,
+            )
+        else:
+            done, still_pending = await asyncio.wait(
+                pending,
+                return_when=asyncio.FIRST_COMPLETED,
+            )
+        pending = set(still_pending)
+
+        # Chamar result() propaga imediatamente qualquer erro de uma parte.
+        for task in done:
+            task.result()
 
     try:
-        senders = list(await asyncio.gather(*(_new_sender(client) for _ in range(active_workers))))
-        pending = [None] * active_workers
-        pending_sizes = [0] * active_workers
-
         with file_path.open("rb") as stream:
             for part_index in range(part_count):
-                lane = part_index % active_workers
-                await finish_lane(lane)
+                while len(pending) >= active_workers:
+                    await collect_done()
 
                 chunk = stream.read(part_size)
                 if not chunk:
                     raise IOError("O arquivo terminou antes do tamanho esperado.")
+                if part_index < part_count - 1 and len(chunk) != part_size:
+                    raise IOError(
+                        "O arquivo retornou uma parte incompleta antes do final."
+                    )
+
                 if md5 is not None:
                     md5.update(chunk)
 
                 if is_large:
-                    request = SaveBigFilePartRequest(file_id, part_index, part_count, chunk)
+                    request = SaveBigFilePartRequest(
+                        file_id,
+                        part_index,
+                        part_count,
+                        chunk,
+                    )
                 else:
                     request = SaveFilePartRequest(file_id, part_index, chunk)
 
-                pending_sizes[lane] = len(chunk)
-                pending[lane] = asyncio.create_task(client._call(senders[lane], request))
+                pending.add(
+                    asyncio.create_task(
+                        send_part(request, len(chunk)),
+                        name=f"tg-upload-part-{part_index}",
+                    )
+                )
 
-        for lane in range(active_workers):
-            await finish_lane(lane)
+        await collect_done(wait_all=True)
+
+        if uploaded != file_size:
+            raise IOError(
+                f"Upload incompleto: {uploaded} de {file_size} bytes confirmados."
+            )
 
         if is_large:
             return InputFileBig(file_id, part_count, file_path.name)
         return InputFile(file_id, part_count, file_path.name, md5.hexdigest())
-    finally:
+    except BaseException:
         for task in pending:
-            if task is not None and not task.done():
+            if not task.done():
                 task.cancel()
         if pending:
-            await asyncio.gather(*(task for task in pending if task is not None), return_exceptions=True)
-        if senders:
-            await asyncio.gather(*(sender.disconnect() for sender in senders), return_exceptions=True)
+            await asyncio.gather(*pending, return_exceptions=True)
+        raise

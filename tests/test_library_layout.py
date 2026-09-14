@@ -32,7 +32,11 @@ class LibraryLayoutTests(unittest.TestCase):
         )
         self.assertEqual(
             library_layout.generate_search_tag("Parasyte - The Maxim"),
-            "Parasyte_The_Maxim",
+            "Parasyte",
+        )
+        self.assertEqual(
+            library_layout.generate_search_tag("Frieren: Beyond Journey's End"),
+            "Frieren",
         )
 
     def test_long_search_tag_is_compact(self):

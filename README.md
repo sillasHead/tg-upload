@@ -69,9 +69,9 @@ A qualidade vem do nome (`[720p]`, `[1080p]`, etc.) ou, quando necessário, do `
 
 ## Thumbnails e reprodução no Telegram Web
 
-MP4, M4V, MOV e MKV são enviados como vídeo reproduzível por padrão, sem alterar os bytes do arquivo.
+MP4, M4V e MOV são enviados como vídeo reproduzível por padrão. **MKV é enviado como documento por padrão**, preservando exatamente o arquivo original e evitando conversões desnecessárias.
 
-Para evitar o problema em que arquivos válidos apareciam pretos ou com metadata incompleta no Telegram Web, o uploader envia explicitamente:
+Para vídeos enviados inline, o uploader envia explicitamente:
 
 - duração e resolução obtidas com `ffprobe`;
 - `DocumentAttributeVideo` com streaming habilitado;
@@ -82,9 +82,11 @@ A thumbnail segue esta prioridade:
 1. **capa/pôster do catálogo da obra** (AniList ou TMDB);
 2. um frame do próprio vídeo como fallback.
 
-Assim episódios da mesma obra ficam visualmente consistentes. Filmes usam o pôster do próprio filme quando disponível.
+Assim episódios da mesma obra ficam visualmente consistentes quando enviados como vídeo. Filmes usam o pôster do próprio filme quando disponível.
 
-O MKV original também é preservado. Para forçar qualquer mídia a ser enviada como arquivo/documento:
+Para MKV, a prioridade padrão é armazenamento fiel: o arquivo é enviado como documento, sem recodificação, mantendo HEVC/H.264, áudios, legendas, capítulos, anexos e demais dados exatamente como estão no arquivo local.
+
+Para forçar qualquer outra mídia a ser enviada como arquivo/documento:
 
 ```powershell
 tg-upload "C:\Videos\Minha Serie" --document
@@ -212,9 +214,11 @@ Valores aceitos: `1` a `8`. Se houver falha no modo rápido, o programa tenta o 
 
 ## MKV e playback-fix
 
-O comportamento normal agora é **preservar o MKV original** e enviá-lo com metadata/thumbnail apropriadas para reprodução inline.
+O comportamento normal é **preservar o MKV original e enviá-lo como documento**. Não há recodificação, remux ou redução de faixas no fluxo padrão.
 
-O antigo ajuste de compatibilidade continua disponível apenas quando solicitado explicitamente:
+Isso é especialmente indicado quando o Telegram será usado como armazenamento temporário: o arquivo enviado permanece com os mesmos bytes do arquivo local, inclusive HEVC Main 10, múltiplos áudios, legendas, capítulos e anexos.
+
+O ajuste de compatibilidade para reprodução inline continua disponível apenas quando solicitado explicitamente:
 
 ```powershell
 tg-upload "C:\Videos\Minha Serie" --playback-fix auto
@@ -227,6 +231,8 @@ Sem essa opção, o padrão é equivalente a:
 ```powershell
 tg-upload "C:\Videos\Minha Serie" --playback-fix off
 ```
+
+Para guardar arquivos no Telegram e posteriormente apagar a cópia local, prefira o padrão `off`. Antes de apagar arquivos importantes, confirme que o upload terminou e que o arquivo pode ser baixado novamente.
 
 ## Envio em lote e estado
 

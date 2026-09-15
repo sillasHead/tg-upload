@@ -177,6 +177,13 @@ import library_layout
 
 library_layout.install(entrypoint)
 
+# Enriquecimento não destrutivo: corrige tags antigas, usa nomes reais de episódios
+# do catálogo quando o arquivo só contém o nome da obra e permite thumbnail externa
+# mesmo quando o MKV é armazenado como documento. Os bytes enviados não são alterados.
+import catalog_enrichment
+
+catalog_enrichment.install(entrypoint, telegram_video, library_layout)
+
 
 def main() -> int:
     special = entrypoint._catalog_special_command()

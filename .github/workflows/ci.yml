@@ -15,6 +15,6 @@ jobs:
       - name: Install dependencies
         run: python -m pip install -r requirements.txt
       - name: Compile
-        run: python -m py_compile upload.py launcher.py entrypoint.py runtime.py fast_upload.py telegram_video.py library_layout.py catalog_enrichment.py media_compat.py anime_catalog.py media_catalog.py
+        run: python -m py_compile upload.py launcher.py entrypoint.py runtime.py fast_upload.py telegram_video.py library_layout.py catalog_enrichment.py catalog_fixes.py media_compat.py anime_catalog.py media_catalog.py
       - name: Tests
         run: python -m unittest discover -s tests -v

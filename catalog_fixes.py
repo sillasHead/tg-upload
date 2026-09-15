@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import re
 import unicodedata
+from pathlib import Path
 from typing import Any
 
 import anime_catalog
@@ -88,6 +89,12 @@ def season_header_text(library: str, season: int) -> str:
         title = _display_title(title)
         return f"📺 {title.upper()} — TEMPORADA {season}\n#{context.search_tag}"
     return _ORIGINAL_SEASON_HEADER(library, season)
+
+
+def _metadata_root(target: Path) -> Path:
+    # Para um arquivo dentro de ...\Obra\mkv\episodio.mkv, o root deve ser Obra,
+    # exatamente como já acontece quando o usuário passa a pasta inteira.
+    return anime_catalog.library_root(Path(target))
 
 
 def _tmdb_credential() -> str | None:
@@ -221,10 +228,19 @@ def _cache_covers_seasons(titles: dict[str, str], seasons: set[int]) -> bool:
     )
 
 
+def _active_layout():
+    enrichment = _CATALOG_ENRICHMENT
+    if enrichment is not None:
+        candidate = getattr(enrichment, "_LIBRARY_LAYOUT", None)
+        if candidate is not None:
+            return candidate
+    return _LIBRARY_LAYOUT
+
+
 def _load_episode_titles() -> None:
     """Carrega nomes de episódios com retry e fallback TMDB para animes."""
     enrichment = _CATALOG_ENRICHMENT
-    layout = _LIBRARY_LAYOUT
+    layout = _active_layout()
     if enrichment is None or layout is None:
         return
 
@@ -403,8 +419,8 @@ def _load_episode_titles() -> None:
 
 def _migrate_legacy_search_tag() -> None:
     """Troca apenas tags antigas que são claramente o título completo da obra."""
-    layout = _LIBRARY_LAYOUT
     enrichment = _CATALOG_ENRICHMENT
+    layout = _active_layout()
     if layout is None or enrichment is None:
         return
 
@@ -418,7 +434,7 @@ def _migrate_legacy_search_tag() -> None:
         # Nunca sobrescreve uma tag explicitamente escolhida pelo usuário.
         return
 
-    canonical = generate_search_tag(context.metadata.title)
+    canonical = layout.generate_search_tag(context.metadata.title)
     current = str(context.search_tag).strip()
     if current.casefold() == canonical.casefold():
         if current != canonical:
@@ -429,28 +445,38 @@ def _migrate_legacy_search_tag() -> None:
             context.search_tag = canonical
         return
 
-    words = layout._ascii_words(context.metadata.title)
-    legacy_candidates: set[str] = set()
+    # A forma antiga era simplesmente o título inteiro normalizado. Fazemos a
+    # comparação sem diferenciar maiúsculas/minúsculas para também migrar
+    # "Parasyte_The_Maxim" quando o AniList fornece "Parasyte -the maxim-".
     try:
-        legacy_candidates.add(layout.normalize_search_tag(context.metadata.title).casefold())
+        full_title = layout.normalize_search_tag(context.metadata.title)
     except ValueError:
-        pass
-    if words:
-        pretty_full = "_".join(layout._tag_word(word) for word in words)
+        full_title = ""
+    if full_title and current.casefold() == full_title.casefold():
         try:
-            legacy_candidates.add(layout.normalize_search_tag(pretty_full).casefold())
-        except ValueError:
-            pass
-
-    if current.casefold() not in legacy_candidates:
+            layout._save_library_profile(context.root, canonical)
+        except OSError:
+            return
+        context.search_tag = canonical
+        print(f"Tag de busca ajustada: #{canonical}")
         return
 
-    try:
-        layout._save_library_profile(context.root, canonical)
-    except OSError:
-        return
-    context.search_tag = canonical
-    print(f"Tag de busca ajustada: #{canonical}")
+    # Compatibilidade com versões que capitalizavam cada palavra antes de salvar.
+    if hasattr(layout, "_ascii_words") and hasattr(layout, "_tag_word"):
+        words = layout._ascii_words(context.metadata.title)
+        if words:
+            pretty_full = "_".join(layout._tag_word(word) for word in words)
+            try:
+                pretty_full = layout.normalize_search_tag(pretty_full)
+            except ValueError:
+                pretty_full = ""
+            if pretty_full and current.casefold() == pretty_full.casefold():
+                try:
+                    layout._save_library_profile(context.root, canonical)
+                except OSError:
+                    return
+                context.search_tag = canonical
+                print(f"Tag de busca ajustada: #{canonical}")
 
 
 def install(entrypoint_module, catalog_enrichment_module, library_layout_module) -> None:
@@ -468,3 +494,4 @@ def install(entrypoint_module, catalog_enrichment_module, library_layout_module)
     catalog_enrichment_module._load_episode_titles = _load_episode_titles
     catalog_enrichment_module._migrate_legacy_search_tag = _migrate_legacy_search_tag
     catalog_enrichment_module._CONTEXT_KEY = None
+    entrypoint_module._metadata_root = _metadata_root

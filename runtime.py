@@ -184,6 +184,12 @@ import catalog_enrichment
 
 catalog_enrichment.install(entrypoint, telegram_video, library_layout)
 
+# Endurece os casos reais encontrados na biblioteca: títulos estilizados do AniList
+# como "Parasyte -the maxim-", retry de catálogos e fallback TMDB para nomes de episódios.
+import catalog_fixes
+
+catalog_fixes.install(entrypoint, catalog_enrichment, library_layout)
+
 
 def main() -> int:
     special = entrypoint._catalog_special_command()

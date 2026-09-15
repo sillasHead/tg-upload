@@ -1,0 +1,115 @@
+import tempfile
+import unittest
+from contextlib import contextmanager
+from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import MagicMock, patch
+
+import anime_catalog
+import catalog_enrichment
+
+
+class CatalogEnrichmentTests(unittest.TestCase):
+    def test_work_title_is_not_repeated_as_episode_title(self):
+        metadata = anime_catalog.AnimeMetadata(title="Parasyte - The Maxim")
+        self.assertEqual(
+            catalog_enrichment._existing_episode_title(
+                "Parasyte - The Maxim [1080p]",
+                metadata,
+            ),
+            "",
+        )
+
+    def test_work_prefix_is_removed_when_real_episode_title_exists(self):
+        metadata = anime_catalog.AnimeMetadata(title="Parasyte - The Maxim")
+        self.assertEqual(
+            catalog_enrichment._existing_episode_title(
+                "Parasyte - The Maxim - Metamorphosis [1080p]",
+                metadata,
+            ),
+            "Metamorphosis",
+        )
+
+    def test_generic_episode_name_defers_to_catalog(self):
+        metadata = anime_catalog.AnimeMetadata(title="Parasyte - The Maxim")
+        self.assertEqual(
+            catalog_enrichment._existing_episode_title("Episode 01 [1080p]", metadata),
+            "",
+        )
+
+    def test_jikan_episode_titles_are_mapped_to_s01_codes(self):
+        payload = {
+            "data": [
+                {"mal_id": 1, "title": "Metamorphosis"},
+                {"mal_id": 2, "title": "The Devil in the Flesh"},
+            ],
+            "pagination": {"has_next_page": False},
+        }
+        with patch("catalog_enrichment._request_json", return_value=payload) as request:
+            titles = catalog_enrichment._jikan_episode_titles(22535)
+
+        self.assertEqual(titles["S01E01"], "Metamorphosis")
+        self.assertEqual(titles["S01E02"], "The Devil in the Flesh")
+        self.assertNotIn("?page=1", request.call_args.args[0])
+
+    def test_legacy_full_title_tag_is_migrated_to_short_tag(self):
+        context = SimpleNamespace(
+            root=Path("C:/Videos/Parasyte"),
+            metadata=anime_catalog.AnimeMetadata(title="Parasyte - The Maxim"),
+            search_tag="Parasyte_The_Maxim",
+        )
+        save = MagicMock()
+        fake_layout = SimpleNamespace(
+            _CONTEXT=context,
+            _launcher=lambda: SimpleNamespace(
+                _ACTIVE_ARGS=SimpleNamespace(search_tag=None)
+            ),
+            generate_search_tag=lambda value: "Parasyte",
+            normalize_search_tag=lambda value: "Parasyte_The_Maxim",
+            _save_library_profile=save,
+        )
+
+        previous = catalog_enrichment._LIBRARY_LAYOUT
+        catalog_enrichment._LIBRARY_LAYOUT = fake_layout
+        try:
+            catalog_enrichment._migrate_legacy_search_tag()
+        finally:
+            catalog_enrichment._LIBRARY_LAYOUT = previous
+
+        self.assertEqual(context.search_tag, "Parasyte")
+        save.assert_called_once_with(context.root, "Parasyte")
+
+    def test_document_video_can_receive_external_thumbnail_without_becoming_streamable(self):
+        calls = []
+
+        @contextmanager
+        def fake_thumbnail(path, as_document):
+            calls.append((Path(path), as_document))
+            yield Path("thumb.jpg")
+
+        previous = catalog_enrichment._ORIGINAL_VIDEO_THUMBNAIL
+        catalog_enrichment._ORIGINAL_VIDEO_THUMBNAIL = fake_thumbnail
+        try:
+            with catalog_enrichment._video_thumbnail(Path("episode.mkv"), True) as thumb:
+                self.assertEqual(thumb, Path("thumb.jpg"))
+        finally:
+            catalog_enrichment._ORIGINAL_VIDEO_THUMBNAIL = previous
+
+        self.assertEqual(calls, [(Path("episode.mkv"), False)])
+
+    def test_episode_cache_round_trip(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            catalog_enrichment._save_titles(
+                root,
+                "jikan",
+                22535,
+                {"S01E01": "Metamorphosis"},
+            )
+            loaded = catalog_enrichment._cached_titles(root, "jikan", 22535)
+
+        self.assertEqual(loaded, {"S01E01": "Metamorphosis"})
+
+
+if __name__ == "__main__":
+    unittest.main()

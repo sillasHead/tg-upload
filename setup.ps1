@@ -25,7 +25,7 @@ try {
     Write-Host "Instalando tg-upload..." -ForegroundColor Cyan
     Ensure-Directory $tempDir
 
-    foreach ($name in @("upload.py", "launcher.py", "entrypoint.py", "runtime.py", "fast_upload.py", "telegram_video.py", "library_layout.py", "catalog_enrichment.py", "media_compat.py", "anime_catalog.py", "media_catalog.py", "requirements.txt")) {
+    foreach ($name in @("upload.py", "launcher.py", "entrypoint.py", "runtime.py", "fast_upload.py", "telegram_video.py", "library_layout.py", "catalog_enrichment.py", "catalog_fixes.py", "media_compat.py", "anime_catalog.py", "media_catalog.py", "requirements.txt")) {
         $url = "https://raw.githubusercontent.com/$repo/main/$name"
         $target = Join-Path $tempDir $name
         Invoke-WebRequest -Uri $url -OutFile $target -UseBasicParsing
@@ -60,6 +60,7 @@ try {
     Copy-Item -LiteralPath (Join-Path $tempDir "telegram_video.py") -Destination (Join-Path $appDir "telegram_video.py") -Force
     Copy-Item -LiteralPath (Join-Path $tempDir "library_layout.py") -Destination (Join-Path $appDir "library_layout.py") -Force
     Copy-Item -LiteralPath (Join-Path $tempDir "catalog_enrichment.py") -Destination (Join-Path $appDir "catalog_enrichment.py") -Force
+    Copy-Item -LiteralPath (Join-Path $tempDir "catalog_fixes.py") -Destination (Join-Path $appDir "catalog_fixes.py") -Force
     Copy-Item -LiteralPath (Join-Path $tempDir "media_compat.py") -Destination (Join-Path $appDir "media_compat.py") -Force
     Copy-Item -LiteralPath (Join-Path $tempDir "anime_catalog.py") -Destination (Join-Path $appDir "anime_catalog.py") -Force
     Copy-Item -LiteralPath (Join-Path $tempDir "media_catalog.py") -Destination (Join-Path $appDir "media_catalog.py") -Force

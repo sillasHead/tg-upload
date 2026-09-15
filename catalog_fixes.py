@@ -401,6 +401,58 @@ def _load_episode_titles() -> None:
                 )
 
 
+def _migrate_legacy_search_tag() -> None:
+    """Troca apenas tags antigas que são claramente o título completo da obra."""
+    layout = _LIBRARY_LAYOUT
+    enrichment = _CATALOG_ENRICHMENT
+    if layout is None or enrichment is None:
+        return
+
+    context = layout._CONTEXT
+    if context.root is None or context.metadata is None or not context.search_tag:
+        return
+
+    launcher = layout._launcher()
+    args = getattr(launcher, "_ACTIVE_ARGS", None)
+    if str(getattr(args, "search_tag", "") or "").strip():
+        # Nunca sobrescreve uma tag explicitamente escolhida pelo usuário.
+        return
+
+    canonical = generate_search_tag(context.metadata.title)
+    current = str(context.search_tag).strip()
+    if current.casefold() == canonical.casefold():
+        if current != canonical:
+            try:
+                layout._save_library_profile(context.root, canonical)
+            except OSError:
+                return
+            context.search_tag = canonical
+        return
+
+    words = layout._ascii_words(context.metadata.title)
+    legacy_candidates: set[str] = set()
+    try:
+        legacy_candidates.add(layout.normalize_search_tag(context.metadata.title).casefold())
+    except ValueError:
+        pass
+    if words:
+        pretty_full = "_".join(layout._tag_word(word) for word in words)
+        try:
+            legacy_candidates.add(layout.normalize_search_tag(pretty_full).casefold())
+        except ValueError:
+            pass
+
+    if current.casefold() not in legacy_candidates:
+        return
+
+    try:
+        layout._save_library_profile(context.root, canonical)
+    except OSError:
+        return
+    context.search_tag = canonical
+    print(f"Tag de busca ajustada: #{canonical}")
+
+
 def install(entrypoint_module, catalog_enrichment_module, library_layout_module) -> None:
     global _ENTRYPOINT, _CATALOG_ENRICHMENT, _LIBRARY_LAYOUT, _ORIGINAL_SEASON_HEADER
 
@@ -409,9 +461,10 @@ def install(entrypoint_module, catalog_enrichment_module, library_layout_module)
     _LIBRARY_LAYOUT = library_layout_module
     _ORIGINAL_SEASON_HEADER = library_layout_module.season_header_text
 
-    # Corrige os dois sintomas vistos na biblioteca: tag longa de títulos estilizados
-    # do AniList e ausência de nome real do episódio quando o arquivo só repete a obra.
+    # Corrige os sintomas vistos na biblioteca: tag longa de títulos estilizados,
+    # cabeçalho decorativo e ausência de nome real quando o arquivo só repete a obra.
     library_layout_module.generate_search_tag = generate_search_tag
     library_layout_module.season_header_text = season_header_text
     catalog_enrichment_module._load_episode_titles = _load_episode_titles
+    catalog_enrichment_module._migrate_legacy_search_tag = _migrate_legacy_search_tag
     catalog_enrichment_module._CONTEXT_KEY = None

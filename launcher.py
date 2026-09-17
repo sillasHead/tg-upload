@@ -20,7 +20,11 @@ import media_compat
 import upload
 
 
-SEASON_DIR_RE = re.compile(r"(?i)^season\s+0*(\d+)$")
+SEASON_DIR_RE = re.compile(r"(?i)^(?:(?:season|temporada)\s*|s)0*(\d+)$")
+ANIME_RELEASE_EPISODE_RE = re.compile(
+    r"(?i)(?:^|\s[-–—:]\s)(?:ep(?:isode)?\.?\s*)?0*(?P<episode>\d{1,3})"
+    r"(?=\s*(?:\[[^\]]+\]\s*)*$)"
+)
 QUALITY_ONLY_RE = re.compile(r"(?i)^\[(?:\d{3,4}p|4k|8k)\]$")
 QUALITY_RE = re.compile(r"(?i)\[(\d{3,4}p|4k|8k)\]")
 STREAMABLE_EXTENSIONS = {".mp4", ".m4v", ".mov", ".mkv"}
@@ -52,11 +56,21 @@ def _normalize_name(value: str) -> str:
     return value.strip()
 
 
+def _season_from_path(path: Path) -> int | None:
+    parent = path.parent
+    if not parent.name:
+        return None
+    match = SEASON_DIR_RE.fullmatch(parent.name)
+    if not match:
+        return None
+    return int(match.group(1))
+
+
 def _library_from_path(path: Path) -> str | None:
     parent = path.parent
     if not parent.name:
         return None
-    if SEASON_DIR_RE.match(parent.name) and parent.parent.name:
+    if SEASON_DIR_RE.fullmatch(parent.name) and parent.parent.name:
         return parent.parent.name
     return parent.name
 
@@ -67,18 +81,28 @@ def _trim_episode_separator(value: str) -> str:
     return value.strip()
 
 
+def _strip_outer_release_tags(value: str) -> str:
+    value = re.sub(r"^(?:\[[^\]]+\]\s*)+", "", value)
+    value = re.sub(r"(?:\s*\[[^\]]+\])+$", "", value)
+    return value.strip()
+
+
 def _clean_episode_title(stem: str, match: re.Match[str] | None) -> str:
     title = stem
     if match:
-        before = _trim_episode_separator(stem[: match.start()])
-        after = _trim_episode_separator(stem[match.end() :])
+        before = _strip_outer_release_tags(
+            _trim_episode_separator(stem[: match.start()])
+        )
+        after = _strip_outer_release_tags(
+            _trim_episode_separator(stem[match.end() :])
+        )
         if before and after:
             title = f"{before} - {after}"
         else:
             title = before or after
 
     title = re.sub(r"\s+", " ", title).strip()
-    return title
+    return _strip_outer_release_tags(title)
 
 
 def _strip_redundant_library_prefix(title: str, library: str | None) -> str:
@@ -98,24 +122,39 @@ def _strip_redundant_library_prefix(title: str, library: str | None) -> str:
 def _smart_parse_media(path: Path) -> upload.MediaItem:
     stem = path.stem
     match = upload.EPISODE_RE.search(stem)
-    if not match:
-        title = _clean_episode_title(stem, None) or stem
-        return upload.MediaItem(path=path, season=None, episode=None, code=None, title=title)
+    if match:
+        season = int(match.group("season"))
+        episode = int(match.group("episode"))
+        code = f"S{season:02d}E{episode:02d}"
 
-    season = int(match.group("season"))
-    episode = int(match.group("episode"))
-    code = f"S{season:02d}E{episode:02d}"
+        title = _clean_episode_title(stem, match)
+        title = _strip_redundant_library_prefix(title, _library_from_path(path))
 
-    title = _clean_episode_title(stem, match)
-    title = _strip_redundant_library_prefix(title, _library_from_path(path))
+        return upload.MediaItem(
+            path=path,
+            season=season,
+            episode=episode,
+            code=code,
+            title=title,
+        )
 
-    return upload.MediaItem(
-        path=path,
-        season=season,
-        episode=episode,
-        code=code,
-        title=title,
-    )
+    season = _season_from_path(path)
+    release_match = ANIME_RELEASE_EPISODE_RE.search(stem) if season is not None else None
+    if release_match:
+        episode = int(release_match.group("episode"))
+        code = f"S{season:02d}E{episode:02d}"
+        title = _clean_episode_title(stem, release_match)
+        title = _strip_redundant_library_prefix(title, _library_from_path(path))
+        return upload.MediaItem(
+            path=path,
+            season=season,
+            episode=episode,
+            code=code,
+            title=title,
+        )
+
+    title = _clean_episode_title(stem, None) or stem
+    return upload.MediaItem(path=path, season=None, episode=None, code=None, title=title)
 
 
 def _smart_caption(item: upload.MediaItem) -> str:

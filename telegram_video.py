@@ -89,8 +89,8 @@ def _document_filename(item) -> str:
 
     # O nome vai no atributo do documento; limpamos apenas caracteres problemáticos
     # para que o arquivo continue amigável também ao ser baixado no Windows.
-    label = re.sub(r'[<>:"/\\|?*\\x00-\\x1f]+', " - ", label)
-    label = re.sub(r"\\s+", " ", label).strip(" .")
+    label = re.sub(r'[<>:"/\\|?*\x00-\x1f]+', " - ", label)
+    label = re.sub(r"\s+", " ", label).strip(" .")
     suffix = item.path.suffix
     if suffix and label.casefold().endswith(suffix.casefold()):
         return label

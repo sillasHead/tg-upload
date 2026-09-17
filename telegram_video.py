@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 import shutil
 import subprocess
 import tempfile
@@ -78,6 +79,38 @@ def _probe_video(path: Path) -> dict[str, Any] | None:
 
 def _is_streamable_video(path: Path, as_document: bool) -> bool:
     return not as_document and path.suffix.casefold() in _STREAMABLE_VIDEO_EXTENSIONS
+
+
+def _document_filename(item) -> str:
+    """Monta o nome exibido no Telegram sem renomear o arquivo local."""
+    label = str(item.caption or "").strip().splitlines()[0].strip()
+    if not label:
+        label = item.path.stem
+
+    # O nome vai no atributo do documento; limpamos apenas caracteres problemáticos
+    # para que o arquivo continue amigável também ao ser baixado no Windows.
+    label = re.sub(r'[<>:"/\\|?*\\x00-\\x1f]+', " - ", label)
+    label = re.sub(r"\\s+", " ", label).strip(" .")
+    suffix = item.path.suffix
+    if suffix and label.casefold().endswith(suffix.casefold()):
+        return label
+    return f"{label}{suffix}"
+
+
+def _document_presentation(item, as_document: bool, attributes):
+    """Para episódios-documento, concentra tudo no nome e remove a caption duplicada."""
+    if not as_document or not item.code:
+        return attributes, item.caption
+
+    launcher = _launcher()
+    filename = _document_filename(item)
+    attributes = [
+        attribute
+        for attribute in attributes
+        if not isinstance(attribute, launcher.types.DocumentAttributeFilename)
+    ]
+    attributes.append(launcher.types.DocumentAttributeFilename(file_name=filename))
+    return attributes, None
 
 
 def _media_attributes(path: Path, as_document: bool):
@@ -265,12 +298,13 @@ def _verify_video_message(message, expected_streaming: bool) -> None:
 
 async def _send_compatible(client, entity, item, as_document: bool, topic_id: int | None, reporter) -> None:
     attributes, mime_type, supports_streaming = _media_attributes(item.path, as_document)
+    attributes, caption = _document_presentation(item, as_document, attributes)
 
     with _video_thumbnail(item.path, as_document) as thumb:
         message = await client.send_file(
             entity,
             str(item.path),
-            caption=item.caption,
+            caption=caption,
             force_document=as_document,
             supports_streaming=supports_streaming,
             attributes=attributes,
@@ -286,6 +320,7 @@ async def _send_compatible(client, entity, item, as_document: bool, topic_id: in
 async def _send_fast(client, entity, item, as_document: bool, topic_id: int | None, reporter) -> None:
     launcher = _launcher()
     attributes, mime_type, supports_streaming = _media_attributes(item.path, as_document)
+    attributes, caption = _document_presentation(item, as_document, attributes)
 
     with _video_thumbnail(item.path, as_document) as thumb:
         uploaded_file = await launcher.fast_upload.upload_file_parallel(
@@ -299,7 +334,7 @@ async def _send_fast(client, entity, item, as_document: bool, topic_id: int | No
         message = await client.send_file(
             entity,
             uploaded_file,
-            caption=item.caption,
+            caption=caption,
             force_document=as_document,
             supports_streaming=supports_streaming,
             attributes=attributes,

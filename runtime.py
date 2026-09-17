@@ -191,6 +191,85 @@ import catalog_fixes
 catalog_fixes.install(entrypoint, catalog_enrichment, library_layout)
 
 
+# Política visual final da biblioteca:
+# - S01E01 continua pesquisável como texto normal, sem virar hashtag global;
+# - a tag da obra aparece somente na apresentação, uma única vez;
+# - cabeçalhos de temporada não repetem hashtags;
+# - hífens que fazem parte do título oficial da obra são preservados.
+_ORIGINAL_FORMAT_INTRO = media_catalog.format_intro
+
+
+def _format_intro_with_search_tag(
+    metadata,
+    kind: str,
+    *,
+    quality: str | None = None,
+    audio_labels: tuple[str, ...] = (),
+    max_length: int = 1000,
+) -> str:
+    text = _ORIGINAL_FORMAT_INTRO(
+        metadata,
+        kind,
+        quality=quality,
+        audio_labels=audio_labels,
+        max_length=max_length,
+    )
+
+    context = library_layout._CONTEXT
+    tag = context.search_tag if context.include_search_tag else None
+    # entrypoint._publish_intro monta primeiro o bloco sem sinopse. É nesse bloco
+    # que a tag deve ficar para a pesquisa apontar para a apresentação/poster.
+    if not tag or getattr(metadata, "synopsis", None) is not None:
+        return text
+
+    marker = f"#{tag}"
+    if marker in text.splitlines():
+        return text
+    return f"{text.rstrip()}\n\n{marker}"
+
+
+def _format_episode_caption(
+    item,
+    *,
+    quality: str | None,
+    release: str | None,
+    search_tag: str | None = None,
+) -> str:
+    if not item.code:
+        original = library_layout._ORIGINAL_SMART_CAPTION
+        if original is not None:
+            return original(item)
+        return item.title or item.path.stem
+
+    title = library_layout.TRAILING_QUALITY_RE.sub("", item.title or "").strip()
+    line = item.code
+    if title:
+        line += f" - {title}"
+
+    details = [value for value in (quality, release) if value]
+    if details:
+        line += " [" + " • ".join(details) + "]"
+    return line
+
+
+def _season_header_without_tags(library: str, season: int) -> str:
+    context = library_layout._CONTEXT
+    if context.include_search_tag:
+        title = (
+            context.metadata.title
+            if context.metadata is not None and context.metadata.title
+            else library
+        )
+        title = catalog_fixes._display_title(title)
+        return f"📺 {title.upper()} — TEMPORADA {season}"
+    return f"📺 S{season:02d} — TEMPORADA {season}"
+
+
+media_catalog.format_intro = _format_intro_with_search_tag
+library_layout.format_caption = _format_episode_caption
+library_layout.season_header_text = _season_header_without_tags
+
+
 def main() -> int:
     special = entrypoint._catalog_special_command()
     if special is not None:

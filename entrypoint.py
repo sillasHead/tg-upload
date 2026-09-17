@@ -4,6 +4,7 @@ import getpass
 import os
 import sys
 import unicodedata
+from dataclasses import replace
 from pathlib import Path
 
 from InquirerPy import inquirer
@@ -26,6 +27,9 @@ launcher.STREAMABLE_EXTENSIONS = {".mp4", ".m4v", ".mov"}
 _ORIGINAL_BUILD_PARSER = launcher._build_parser
 _ORIGINAL_SEND_MEDIA = launcher._send_media
 _ORIGINAL_SHOW_CONFIG = upload.show_config
+
+TELEGRAM_CAPTION_SAFE_LIMIT = 1000
+TELEGRAM_MESSAGE_SAFE_LIMIT = 4000
 
 
 def _normalize(value: str | None) -> str:
@@ -381,6 +385,50 @@ async def _resolve_metadata(
     return metadata
 
 
+def _split_message(text: str, limit: int = TELEGRAM_MESSAGE_SAFE_LIMIT) -> list[str]:
+    remaining = str(text or "").strip()
+    if not remaining:
+        return []
+
+    chunks: list[str] = []
+    while len(remaining) > limit:
+        cut = remaining.rfind("\n", 0, limit + 1)
+        if cut < limit // 2:
+            cut = remaining.rfind(" ", 0, limit + 1)
+        if cut <= 0:
+            cut = limit
+        chunks.append(remaining[:cut].rstrip())
+        remaining = remaining[cut:].lstrip()
+
+    if remaining:
+        chunks.append(remaining)
+    return chunks
+
+
+def _full_synopsis(
+    metadata: anime_catalog.AnimeMetadata,
+    kind: str,
+) -> str:
+    if kind == "anime":
+        localized = anime_catalog.localize_anime(metadata)
+        return str(localized.synopsis or "").strip()
+    return str(media_catalog._clean_html(metadata.synopsis) or "").strip()
+
+
+async def _send_text_chunks(
+    client,
+    destination: upload.Destination,
+    text: str,
+) -> None:
+    for chunk in _split_message(text):
+        await client.send_message(
+            destination.entity,
+            chunk,
+            reply_to=destination.topic_id,
+            parse_mode=None,
+        )
+
+
 async def _publish_intro(
     client,
     destination: upload.Destination,
@@ -389,37 +437,59 @@ async def _publish_intro(
     kind: str,
 ) -> None:
     first_item = launcher._ACTIVE_ITEMS[0] if launcher._ACTIVE_ITEMS else None
-    caption = media_catalog.format_intro(
-        metadata,
+    quality = launcher._quality_for_item(first_item)
+    audio_labels = launcher._audio_labels_for_item(first_item)
+
+    base = media_catalog.format_intro(
+        replace(metadata, synopsis=None),
         kind,
-        quality=launcher._quality_for_item(first_item),
-        audio_labels=launcher._audio_labels_for_item(first_item),
+        quality=quality,
+        audio_labels=audio_labels,
+        max_length=TELEGRAM_MESSAGE_SAFE_LIMIT,
     )
+    synopsis = _full_synopsis(metadata, kind)
+    synopsis_block = f"📝 Sinopse:\n{synopsis}" if synopsis else ""
+    full_intro = base + (f"\n\n{synopsis_block}" if synopsis_block else "")
+
     poster, tempdir = media_catalog.resolve_poster(metadata, root)
 
     try:
         if poster is not None:
+            if len(full_intro) <= TELEGRAM_CAPTION_SAFE_LIMIT:
+                poster_caption = full_intro
+                followup = ""
+            elif len(base) <= TELEGRAM_CAPTION_SAFE_LIMIT:
+                poster_caption = base
+                followup = synopsis_block
+            else:
+                display = (
+                    anime_catalog.localize_anime(metadata)
+                    if kind == "anime"
+                    else metadata
+                )
+                icon = "🎬" if kind in {"anime", "filme"} else "📺"
+                poster_caption = f"{icon} {display.title}"[:TELEGRAM_CAPTION_SAFE_LIMIT]
+                followup = full_intro
+
             try:
                 await client.send_file(
                     destination.entity,
                     str(poster),
-                    caption=caption,
+                    caption=poster_caption,
                     reply_to=destination.topic_id,
                     parse_mode=None,
                 )
-                return
             except Exception as exc:
                 print(
                     f"Poster não pôde ser enviado ({exc}); "
                     "enviando apresentação em texto."
                 )
+            else:
+                if followup:
+                    await _send_text_chunks(client, destination, followup)
+                return
 
-        await client.send_message(
-            destination.entity,
-            caption,
-            reply_to=destination.topic_id,
-            parse_mode=None,
-        )
+        await _send_text_chunks(client, destination, full_intro)
     finally:
         if tempdir is not None:
             tempdir.cleanup()

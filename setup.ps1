@@ -25,10 +25,20 @@ try {
     Write-Host "Instalando tg-upload..." -ForegroundColor Cyan
     Ensure-Directory $tempDir
 
-    $cacheBust = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
+    $commitApi = "https://api.github.com/repos/$repo/commits/main"
+    $commitInfo = Invoke-RestMethod -Uri $commitApi -Headers @{
+        "Accept" = "application/vnd.github+json"
+        "Cache-Control" = "no-cache"
+        "User-Agent" = "tg-upload-installer"
+    }
+    $commitSha = [string]$commitInfo.sha
+    if ([string]::IsNullOrWhiteSpace($commitSha)) {
+        throw "Não foi possível descobrir a versão mais recente do tg-upload."
+    }
+    Write-Host "Versão GitHub: $($commitSha.Substring(0, 7))" -ForegroundColor DarkGray
 
     foreach ($name in @("upload.py", "launcher.py", "entrypoint.py", "runtime.py", "fast_upload.py", "telegram_video.py", "library_layout.py", "catalog_enrichment.py", "catalog_fixes.py", "media_compat.py", "anime_catalog.py", "media_catalog.py", "requirements.txt")) {
-        $url = "https://raw.githubusercontent.com/$repo/main/$name`?v=$cacheBust"
+        $url = "https://raw.githubusercontent.com/$repo/$commitSha/$name"
         $target = Join-Path $tempDir $name
         Invoke-WebRequest -Uri $url -OutFile $target -UseBasicParsing -Headers @{ "Cache-Control" = "no-cache" }
         if (-not (Test-Path -LiteralPath $target -PathType Leaf) -or (Get-Item -LiteralPath $target).Length -eq 0) {
@@ -95,7 +105,7 @@ exit /b %ERRORLEVEL%
 
 :update
 set "TG_UPLOAD_SETUP=%TEMP%\tg-upload-setup-%RANDOM%%RANDOM%.ps1"
-powershell -NoProfile -Command "$u='https://raw.githubusercontent.com/sillasHead/tg-upload/main/setup.ps1?v=' + [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds(); Invoke-WebRequest -UseBasicParsing -Headers @{ 'Cache-Control'='no-cache' } -Uri $u -OutFile '%TG_UPLOAD_SETUP%'"
+powershell -NoProfile -Command "$h=@{Accept='application/vnd.github.raw+json';'Cache-Control'='no-cache';'User-Agent'='tg-upload-updater'}; Invoke-WebRequest -UseBasicParsing -Headers $h -Uri 'https://api.github.com/repos/sillasHead/tg-upload/contents/setup.ps1?ref=main' -OutFile '%TG_UPLOAD_SETUP%'"
 if errorlevel 1 (
     echo Falha ao baixar o atualizador.
     exit /b 1

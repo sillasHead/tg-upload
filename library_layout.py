@@ -465,7 +465,18 @@ async def _run_with_layout(args) -> int:
         print(f"Biblioteca: {library}")
         if _CONTEXT.search_tag and _CONTEXT.include_search_tag:
             print(f"Busca: #{_CONTEXT.search_tag}")
-        print(f"Arquivos encontrados: {len(items)}\n")
+        print(f"Arquivos encontrados: {len(items)}")
+
+        named_items = [item for item in items if item.code]
+        if named_items:
+            print("\nNomes no Telegram:")
+            for item in named_items:
+                presentation = str(item.caption or "").strip().splitlines()[0].strip()
+                suffix = item.path.suffix
+                if suffix and presentation and not presentation.casefold().endswith(suffix.casefold()):
+                    presentation += suffix
+                print(f"  {presentation or item.path.name}")
+        print()
 
         sent = skipped = failed = 0
         announced_this_run: set[int] = set()

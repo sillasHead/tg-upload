@@ -25,7 +25,7 @@ GENERIC_MEDIA_DIRS = {
     "files",
     "arquivos",
 }
-SEASON_DIR_RE = re.compile(r"(?i)^(?:season|temporada)\s*0*(\d+)$")
+SEASON_DIR_RE = re.compile(r"(?i)^(?:(?:season|temporada)\s*|s)0*(\d+)$")
 
 STATUS_PT = {
     "FINISHED": "Finalizado",

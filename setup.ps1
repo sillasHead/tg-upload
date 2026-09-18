@@ -25,10 +25,12 @@ try {
     Write-Host "Instalando tg-upload..." -ForegroundColor Cyan
     Ensure-Directory $tempDir
 
+    $cacheBust = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
+
     foreach ($name in @("upload.py", "launcher.py", "entrypoint.py", "runtime.py", "fast_upload.py", "telegram_video.py", "library_layout.py", "catalog_enrichment.py", "catalog_fixes.py", "media_compat.py", "anime_catalog.py", "media_catalog.py", "requirements.txt")) {
-        $url = "https://raw.githubusercontent.com/$repo/main/$name"
+        $url = "https://raw.githubusercontent.com/$repo/main/$name`?v=$cacheBust"
         $target = Join-Path $tempDir $name
-        Invoke-WebRequest -Uri $url -OutFile $target -UseBasicParsing
+        Invoke-WebRequest -Uri $url -OutFile $target -UseBasicParsing -Headers @{ "Cache-Control" = "no-cache" }
         if (-not (Test-Path -LiteralPath $target -PathType Leaf) -or (Get-Item -LiteralPath $target).Length -eq 0) {
             throw "Falha ao baixar $name."
         }
@@ -93,7 +95,7 @@ exit /b %ERRORLEVEL%
 
 :update
 set "TG_UPLOAD_SETUP=%TEMP%\tg-upload-setup-%RANDOM%%RANDOM%.ps1"
-powershell -NoProfile -Command "Invoke-WebRequest -UseBasicParsing -Uri 'https://raw.githubusercontent.com/sillasHead/tg-upload/main/setup.ps1' -OutFile '%TG_UPLOAD_SETUP%'"
+powershell -NoProfile -Command "$u='https://raw.githubusercontent.com/sillasHead/tg-upload/main/setup.ps1?v=' + [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds(); Invoke-WebRequest -UseBasicParsing -Headers @{ 'Cache-Control'='no-cache' } -Uri $u -OutFile '%TG_UPLOAD_SETUP%'"
 if errorlevel 1 (
     echo Falha ao baixar o atualizador.
     exit /b 1

@@ -273,6 +273,7 @@ def _load_episode_titles() -> None:
     enrichment._CONTEXT_KEY = None
 
     if context.kind == "anime" and metadata.source == "anilist":
+        partial_titles: dict[str, str] = {}
         profile = enrichment._profile(root)
         raw_mal = profile.get("mal_id")
         try:
@@ -297,11 +298,11 @@ def _load_episode_titles() -> None:
         if mal_id is not None:
             cached = enrichment._cached_titles(root, "jikan", mal_id)
             if cached:
-                enrichment._EPISODE_TITLES = _remap_single_anime_season(
-                    cached, seasons
-                )
-                enrichment._CONTEXT_KEY = key
-                return
+                partial_titles = _remap_single_anime_season(cached, seasons)
+                if _cache_covers_seasons(partial_titles, seasons):
+                    enrichment._EPISODE_TITLES = partial_titles
+                    enrichment._CONTEXT_KEY = key
+                    return
             try:
                 titles = enrichment._jikan_episode_titles(mal_id)
             except RuntimeError as exc:
@@ -315,15 +316,15 @@ def _load_episode_titles() -> None:
                     enrichment._save_titles(root, "jikan", mal_id, titles)
                 except OSError:
                     pass
-                enrichment._EPISODE_TITLES = _remap_single_anime_season(
-                    titles, seasons
-                )
-                enrichment._CONTEXT_KEY = key
-                print(
-                    f"Títulos de episódios: {len(enrichment._EPISODE_TITLES)} "
-                    "carregados do catálogo."
-                )
-                return
+                partial_titles = _remap_single_anime_season(titles, seasons)
+                if _cache_covers_seasons(partial_titles, seasons):
+                    enrichment._EPISODE_TITLES = partial_titles
+                    enrichment._CONTEXT_KEY = key
+                    print(
+                        f"Títulos de episódios: {len(partial_titles)} "
+                        "carregados do catálogo."
+                    )
+                    return
 
         # Fallback: o usuário já pode ter TMDB configurado para séries/desenhos.
         # Isso também costuma oferecer títulos pt-BR quando existem no catálogo.
@@ -353,28 +354,63 @@ def _load_episode_titles() -> None:
                     pass
 
         if tmdb_metadata is not None and tmdb_id is not None:
-            cached = enrichment._cached_titles(root, "tmdb-anime", tmdb_id)
-            if cached and _cache_covers_seasons(cached, seasons):
-                enrichment._EPISODE_TITLES = cached
-                enrichment._CONTEXT_KEY = key
-                return
-            fetched = enrichment._tmdb_season_titles(tmdb_metadata, seasons)
+            cached_tmdb = enrichment._cached_titles(root, "tmdb-anime", tmdb_id)
+
+            missing_seasons = {
+                season
+                for season in seasons
+                if not any(
+                    code.startswith(f"S{season:02d}E")
+                    for code in partial_titles
+                )
+            }
+
+            cached_missing = {
+                code: title
+                for code, title in cached_tmdb.items()
+                if any(code.startswith(f"S{season:02d}E") for season in missing_seasons)
+            }
+            combined = {**partial_titles, **cached_missing}
+
+            remaining = {
+                season
+                for season in missing_seasons
+                if not any(code.startswith(f"S{season:02d}E") for code in combined)
+            }
+            fetched = (
+                enrichment._tmdb_season_titles(tmdb_metadata, remaining)
+                if remaining
+                else {}
+            )
             if fetched:
-                enrichment._EPISODE_TITLES = fetched
-                enrichment._CONTEXT_KEY = key
+                combined.update(fetched)
                 try:
                     enrichment._save_titles(
                         root,
                         "tmdb-anime",
                         tmdb_id,
-                        fetched,
+                        {**cached_tmdb, **fetched},
                     )
                 except OSError:
                     pass
+
+            if combined:
+                enrichment._EPISODE_TITLES = combined
+                if _cache_covers_seasons(combined, seasons):
+                    enrichment._CONTEXT_KEY = key
                 print(
-                    f"Títulos de episódios: {len(fetched)} carregados do TMDB."
+                    f"Títulos de episódios: {len(combined)} carregados "
+                    "do catálogo/Jikan+TMDB."
                 )
                 return
+
+        if partial_titles:
+            enrichment._EPISODE_TITLES = partial_titles
+            enrichment._warn_once(
+                f"episodes-partial:{root}",
+                "Aviso: só foi possível obter nomes para parte das temporadas.",
+            )
+            return
 
         enrichment._warn_once(
             f"episodes:{root}",
@@ -415,6 +451,40 @@ def _load_episode_titles() -> None:
                 print(
                     f"Títulos de episódios: {len(merged)} carregados do catálogo."
                 )
+
+
+def _looks_like_series_title(
+    value: str | None,
+    metadata: anime_catalog.AnimeMetadata | None,
+    season: int | None,
+) -> bool:
+    """Detecta nomes de release que são só o título da obra + número da temporada."""
+    if metadata is None:
+        return False
+
+    title = _normalized(value)
+    if not title:
+        return False
+
+    season_number = int(season) if season is not None else None
+    for candidate in (metadata.title, metadata.original_title):
+        base = _normalized(candidate)
+        if not base:
+            continue
+        variants = {base}
+        if season_number is not None:
+            variants.update(
+                {
+                    f"{base} {season_number}",
+                    f"{base} season {season_number}",
+                    f"{base} temporada {season_number}",
+                    f"{base} s{season_number}",
+                    f"{base} s{season_number:02d}",
+                }
+            )
+        if title in variants:
+            return True
+    return False
 
 
 def _migrate_legacy_search_tag() -> None:

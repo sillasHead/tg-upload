@@ -494,6 +494,12 @@ async def _run_with_layout(args) -> int:
                 announced_this_run.add(item.season)
 
             print(f"Enviando: {item.path.name}")
+            presentation = str(item.caption or "").strip().splitlines()[0].strip()
+            if item.code and presentation:
+                suffix = item.path.suffix
+                if suffix and not presentation.casefold().endswith(suffix.casefold()):
+                    presentation += suffix
+                print(f"Nome Telegram: {presentation}")
             try:
                 await upload.send_media(
                     client,

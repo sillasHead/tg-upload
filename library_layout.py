@@ -455,6 +455,28 @@ async def _run_with_layout(args) -> int:
     await client.start()
 
     try:
+        me = await client.get_me()
+        is_premium = bool(getattr(me, "premium", False))
+        max_parts = 8000 if is_premium else 4000
+        max_upload_size = max_parts * 512 * 1024
+        oversized = [item for item in items if item.path.stat().st_size > max_upload_size]
+        if oversized:
+            tier = "Premium" if is_premium else "não-Premium"
+            limit_gb = max_upload_size / 1_000_000_000
+            print(
+                f"\nUpload cancelado antes do envio: a conta Telegram é {tier} "
+                f"e o limite atual é ~{limit_gb:.1f} GB por arquivo."
+            )
+            for item in oversized:
+                size_gb = item.path.stat().st_size / 1_000_000_000
+                print(f"  {item.path.name}: {size_gb:.2f} GB")
+            print(
+                "O Telegram retornaria FILE_PARTS_INVALID para esses arquivos. "
+                "Reduza o arquivo, use uma conta Premium quando aplicável, "
+                "ou encaminhe uma cópia que já esteja no Telegram."
+            )
+            return 1
+
         destination = await upload.choose_destination(client, config, args.to, args.channel, args.topic)
         entity = destination.entity
         channel_id = destination.channel_id

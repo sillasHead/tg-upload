@@ -451,6 +451,43 @@ def _existing_episode_title(
     return title
 
 
+def _looks_like_series_title(
+    value: str | None,
+    metadata: anime_catalog.AnimeMetadata | None,
+    season: int | None,
+) -> bool:
+    """Retorna True quando o 'título do episódio' é só obra + número da temporada."""
+    if metadata is None:
+        return False
+
+    title = _normalized(value)
+    if not title:
+        return False
+
+    season_number = int(season) if season is not None else None
+    for candidate in (metadata.title, metadata.original_title):
+        base = _normalized(candidate)
+        if not base:
+            continue
+
+        variants = {base}
+        if season_number is not None:
+            variants.update(
+                {
+                    f"{base} {season_number}",
+                    f"{base} season {season_number}",
+                    f"{base} temporada {season_number}",
+                    f"{base} s{season_number}",
+                    f"{base} s{season_number:02d}",
+                }
+            )
+
+        if title in variants:
+            return True
+
+    return False
+
+
 def _migrate_legacy_search_tag() -> None:
     if _LIBRARY_LAYOUT is None:
         return
@@ -501,6 +538,8 @@ def smart_caption(item: upload.MediaItem) -> str:
     tag = context.search_tag if context.include_search_tag else None
 
     title = _existing_episode_title(item.title, context.metadata)
+    if item.code and _looks_like_series_title(title, context.metadata, item.season):
+        title = ""
     if item.code and not title:
         title = _EPISODE_TITLES.get(item.code, "")
 

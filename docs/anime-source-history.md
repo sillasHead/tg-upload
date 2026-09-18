@@ -151,3 +151,77 @@ O remux apenas adicionou/substituiu a faixa de legenda desejada; **vídeo e áud
 
 - A sincronização não foi tratada apenas como um deslocamento único para toda a temporada; alguns episódios exigiram ajustes específicos.
 - A versão final deve ser considerada a referência para futuras cópias ou reconstruções desta temporada.
+
+
+---
+
+## Psycho-Pass 2 (2014) — Temporada 2
+
+### Fontes
+
+| Uso | Release | Origem |
+| --- | --- | --- |
+| Base principal | Erai-raws — `Psycho-Pass 2 - 01 ~ 11 [1080p][Multiple Subtitle]` | Link de origem ainda não registrado |
+| Fonte da legenda PT-BR | EmmidRips — NF WEB-DL DDP2.0 x264 DUAL AUDIO MULTI SUBS | Link de origem ainda não registrado |
+
+### Método utilizado
+
+1. A release da **Erai-raws** foi usada como base de vídeo da versão final.
+2. A legenda final em português veio da versão **EmmidRips / Netflix WEB-DL**.
+3. A legenda portuguesa já presente na Erai **não foi usada como texto final**, pois a tradução não foi considerada adequada.
+4. Inicialmente foi testada a hipótese de diferenças estruturais entre as duas releases, como havia ocorrido na Temporada 1.
+5. A validação manual mostrou que, na Temporada 2, o conteúdo principal das duas versões segue praticamente a **mesma timeline**.
+6. A versão WEB possui apenas um pequeno trecho adicional de aproximadamente **3 segundos no final**, sem afetar o sincronismo do conteúdo principal.
+7. Portanto, **não foi necessário aplicar offsets estruturais por blocos**.
+8. Foi aplicado apenas um **delay global específico por episódio**, definido manualmente após testes visuais em vários pontos de cada episódio.
+9. Não foi aplicada extensão geral da duração das legendas.
+10. Depois do delay, foram corrigidos apenas gaps positivos menores que **100 ms**, fazendo o fim da legenda anterior coincidir exatamente com o início da próxima.
+11. Os gaps encontrados eram praticamente todos de **83–84 ms**, sem overlaps na legenda original.
+12. O texto da legenda PT-BR da EmmidRips foi preservado; apenas os timestamps foram alterados.
+
+### Delays finais por episódio
+
+| Episódio | Delay aplicado |
+| --- | ---: |
+| S02E01 | +250 ms |
+| S02E02 | +500 ms |
+| S02E03 | +50 ms |
+| S02E04 | +50 ms |
+| S02E05 | +400 ms |
+| S02E06 | +400 ms |
+| S02E07 | +400 ms |
+| S02E08 | +100 ms |
+| S02E09 | +450 ms |
+| S02E10 | +500 ms |
+| S02E11 | +100 ms |
+
+### Regra de gaps
+
+Após aplicar o delay específico de cada episódio:
+
+- se o intervalo positivo entre o fim de uma legenda e o início da próxima fosse **menor que 100 ms**, o fim da legenda anterior era estendido exatamente até o início da próxima;
+- gaps de **100 ms ou mais** eram preservados;
+- não foi aplicada extensão geral como `+350 ms` ou `+450 ms`;
+- não foram encontrados overlaps na legenda original;
+- os gaps afetados ficaram em torno de **83–84 ms**.
+
+### Resultado final
+
+- Vídeo/base: **Erai-raws**
+- Legenda PT-BR: **EmmidRips / Netflix WEB-DL**
+- Sincronização estrutural por blocos: **não necessária**
+- Ajuste utilizado: **delay global específico por episódio**
+- Extensão geral da duração: **não**
+- Correção de gaps: **sim, somente gaps <100 ms**
+- Texto da legenda: **preservado integralmente**
+- Nome final das legendas: `Psycho-Pass.S02E01.PT-BR.srt` até `Psycho-Pass.S02E11.PT-BR.srt`
+- Container final pretendido: **MKV**
+- Método de montagem pretendido: **remux**
+- Recodificação de vídeo: **não**
+- Recodificação de áudio: **não**
+
+### Observações
+
+- A primeira tentativa de sincronização por múltiplos blocos foi descartada após os testes manuais mostrarem que as duas versões tinham praticamente o mesmo timing.
+- O ajuste fino foi feito episódio por episódio, porque diferenças de aproximadamente 50–500 ms eram perceptíveis visualmente.
+- O S02E01 foi usado como referência inicial e fechou em **+250 ms**.

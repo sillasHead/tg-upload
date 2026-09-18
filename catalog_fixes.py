@@ -273,62 +273,12 @@ def _load_episode_titles() -> None:
     enrichment._CONTEXT_KEY = None
 
     if context.kind == "anime" and metadata.source == "anilist":
+        # Para nomes de episódios, prioriza TMDB. Ele oferece temporadas/episódios
+        # diretamente e suporta localização pt-BR. Jikan fica como fallback, porque
+        # depende de scraping/upstream do MyAnimeList e pode responder 5xx/504.
         partial_titles: dict[str, str] = {}
         profile = enrichment._profile(root)
-        raw_mal = profile.get("mal_id")
-        try:
-            mal_id = int(raw_mal) if raw_mal is not None else None
-        except (TypeError, ValueError):
-            mal_id = None
 
-        if mal_id is None:
-            try:
-                mal_id = enrichment._resolve_anilist_mal_id(metadata)
-            except RuntimeError as exc:
-                enrichment._warn_once(
-                    "anilist-mal",
-                    f"Aviso: AniList não forneceu o vínculo de episódios ({exc}).",
-                )
-            if mal_id is not None:
-                try:
-                    enrichment._save_profile(root, {"mal_id": mal_id})
-                except OSError:
-                    pass
-
-        if mal_id is not None:
-            cached = enrichment._cached_titles(root, "jikan", mal_id)
-            if cached:
-                partial_titles = _remap_single_anime_season(cached, seasons)
-                if _cache_covers_seasons(partial_titles, seasons):
-                    enrichment._EPISODE_TITLES = partial_titles
-                    enrichment._CONTEXT_KEY = key
-                    return
-            try:
-                titles = enrichment._jikan_episode_titles(mal_id)
-            except RuntimeError as exc:
-                enrichment._warn_once(
-                    "jikan",
-                    f"Aviso: Jikan não respondeu com os nomes dos episódios ({exc}).",
-                )
-                titles = {}
-            if titles:
-                try:
-                    enrichment._save_titles(root, "jikan", mal_id, titles)
-                except OSError:
-                    pass
-                partial_titles = _remap_single_anime_season(titles, seasons)
-                if _cache_covers_seasons(partial_titles, seasons):
-                    enrichment._EPISODE_TITLES = partial_titles
-                    enrichment._CONTEXT_KEY = key
-                    print(
-                        f"Títulos de episódios: {len(partial_titles)} "
-                        "carregados do catálogo."
-                    )
-                    return
-
-        # Fallback: o usuário já pode ter TMDB configurado para séries/desenhos.
-        # Isso também costuma oferecer títulos pt-BR quando existem no catálogo.
-        profile = enrichment._profile(root)
         raw_tmdb = profile.get("anime_tmdb_id")
         try:
             tmdb_id = int(raw_tmdb) if raw_tmdb is not None else None
@@ -355,67 +305,118 @@ def _load_episode_titles() -> None:
 
         if tmdb_metadata is not None and tmdb_id is not None:
             cached_tmdb = enrichment._cached_titles(root, "tmdb-anime", tmdb_id)
-
-            missing_seasons = {
+            missing_tmdb = {
                 season
                 for season in seasons
                 if not any(
                     code.startswith(f"S{season:02d}E")
-                    for code in partial_titles
+                    for code in cached_tmdb
                 )
             }
-
-            cached_missing = {
-                code: title
-                for code, title in cached_tmdb.items()
-                if any(code.startswith(f"S{season:02d}E") for season in missing_seasons)
-            }
-            combined = {**partial_titles, **cached_missing}
-
-            remaining = {
-                season
-                for season in missing_seasons
-                if not any(code.startswith(f"S{season:02d}E") for code in combined)
-            }
-            fetched = (
-                enrichment._tmdb_season_titles(tmdb_metadata, remaining)
-                if remaining
+            fetched_tmdb = (
+                enrichment._tmdb_season_titles(tmdb_metadata, missing_tmdb)
+                if missing_tmdb
                 else {}
             )
-            if fetched:
-                combined.update(fetched)
+            if fetched_tmdb:
+                cached_tmdb = {**cached_tmdb, **fetched_tmdb}
                 try:
                     enrichment._save_titles(
                         root,
                         "tmdb-anime",
                         tmdb_id,
-                        {**cached_tmdb, **fetched},
+                        cached_tmdb,
                     )
                 except OSError:
                     pass
 
-            if combined:
-                enrichment._EPISODE_TITLES = combined
-                if _cache_covers_seasons(combined, seasons):
-                    enrichment._CONTEXT_KEY = key
+            partial_titles = {
+                code: title
+                for code, title in cached_tmdb.items()
+                if any(
+                    code.startswith(f"S{season:02d}E")
+                    for season in seasons
+                )
+            }
+            if partial_titles and _cache_covers_seasons(partial_titles, seasons):
+                enrichment._EPISODE_TITLES = partial_titles
+                enrichment._CONTEXT_KEY = key
                 print(
-                    f"Títulos de episódios: {len(combined)} carregados "
-                    "do catálogo/Jikan+TMDB."
+                    f"Títulos de episódios: {len(partial_titles)} "
+                    "carregados do TMDB."
                 )
                 return
 
-        if partial_titles:
-            enrichment._EPISODE_TITLES = partial_titles
-            enrichment._warn_once(
-                f"episodes-partial:{root}",
-                "Aviso: só foi possível obter nomes para parte das temporadas.",
+        # Fallback anime-específico. Em AniList/MAL cada continuação costuma ser
+        # uma entrada separada começando em episódio 1, então o remapeamento para
+        # S02/S03 só é seguro quando há uma única temporada ativa.
+        raw_mal = profile.get("mal_id")
+        try:
+            mal_id = int(raw_mal) if raw_mal is not None else None
+        except (TypeError, ValueError):
+            mal_id = None
+
+        if mal_id is None:
+            try:
+                mal_id = enrichment._resolve_anilist_mal_id(metadata)
+            except RuntimeError as exc:
+                enrichment._warn_once(
+                    "anilist-mal",
+                    f"Aviso: AniList não forneceu o vínculo com MAL ({exc}).",
+                )
+            if mal_id is not None:
+                try:
+                    enrichment._save_profile(root, {"mal_id": mal_id})
+                except OSError:
+                    pass
+
+        jikan_titles: dict[str, str] = {}
+        if mal_id is not None:
+            cached_jikan = enrichment._cached_titles(root, "jikan", mal_id)
+            if cached_jikan:
+                jikan_titles = _remap_single_anime_season(
+                    cached_jikan, seasons
+                )
+            else:
+                try:
+                    fetched_jikan = enrichment._jikan_episode_titles(mal_id)
+                except RuntimeError as exc:
+                    enrichment._warn_once(
+                        "jikan",
+                        f"Aviso: Jikan indisponível; mantendo TMDB/cache "
+                        f"como fonte de episódios ({exc}).",
+                    )
+                    fetched_jikan = {}
+                if fetched_jikan:
+                    try:
+                        enrichment._save_titles(
+                            root, "jikan", mal_id, fetched_jikan
+                        )
+                    except OSError:
+                        pass
+                    jikan_titles = _remap_single_anime_season(
+                        fetched_jikan, seasons
+                    )
+
+        # TMDB tem prioridade em colisões porque pode devolver pt-BR e respeita
+        # temporadas reais. Jikan apenas completa o que estiver faltando.
+        combined = {**jikan_titles, **partial_titles}
+        if combined:
+            enrichment._EPISODE_TITLES = combined
+            if _cache_covers_seasons(combined, seasons):
+                enrichment._CONTEXT_KEY = key
+            source = "TMDB" if partial_titles else "Jikan"
+            if partial_titles and jikan_titles:
+                source = "TMDB + Jikan"
+            print(
+                f"Títulos de episódios: {len(combined)} carregados de {source}."
             )
             return
 
         enrichment._warn_once(
             f"episodes:{root}",
             "Aviso: não foi possível obter nomes reais dos episódios; "
-            "as legendas serão mantidas sem inventar títulos.",
+            "os arquivos serão mantidos sem inventar títulos.",
         )
         return
 

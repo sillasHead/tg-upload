@@ -23,7 +23,7 @@ SESSION_BASE = APP_DIR / "telegram"
 VIDEO_EXTENSIONS = {".mp4", ".mkv", ".mov", ".webm", ".avi", ".m4v"}
 EPISODE_RE = re.compile(r"(?i)\bS(?P<season>\d{1,3})E(?P<episode>\d{1,4})\b")
 QUALITY_RE = re.compile(r"\s*\[(?:\d{3,4}p|4k|8k)\]\s*$", re.IGNORECASE)
-SEASON_DIR_RE = re.compile(r"(?i)^season\s+0*(\d+)$")
+SEASON_DIR_RE = re.compile(r"(?i)^(?:(?:season|temporada)\s*|s)0*(\d+)$")
 SPECIAL_COMMANDS = {"channel", "set-channel", "config", "destinations", "set-destination", "remove-destination"}
 
 

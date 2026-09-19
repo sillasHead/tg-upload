@@ -30,6 +30,7 @@ _ORIGINAL_SHOW_CONFIG = upload.show_config
 
 TELEGRAM_CAPTION_SAFE_LIMIT = 1000
 TELEGRAM_MESSAGE_SAFE_LIMIT = 4000
+_MOVIE_CAPTION: str | None = None
 
 
 def _normalize(value: str | None) -> str:
@@ -113,6 +114,15 @@ async def _send_media(
     as_document: bool,
     topic_id: int | None = None,
 ) -> None:
+    if _MOVIE_CAPTION and item.code is None:
+        item = upload.MediaItem(
+            path=item.path,
+            season=item.season,
+            episode=item.episode,
+            code=item.code,
+            title=_MOVIE_CAPTION,
+        )
+
     suffix = item.path.suffix.casefold()
     effective_document = as_document or (
         suffix == ".mkv" and launcher._ACTIVE_PLAYBACK_FIX == "off"
@@ -499,6 +509,9 @@ async def _maybe_publish_media_intro(
     client,
     destination: upload.Destination,
 ) -> None:
+    global _MOVIE_CAPTION
+    _MOVIE_CAPTION = None
+
     if launcher._ACTIVE_ARGS is None or launcher._ACTIVE_ANIME_INFO == "off":
         return
 
@@ -509,6 +522,24 @@ async def _maybe_publish_media_intro(
     target = Path(launcher._ACTIVE_ARGS.path).expanduser().resolve()
     root = _metadata_root(target)
     cached = media_catalog.load_metadata(root, kind, cache_key=_cache_key(target, kind))
+
+    # Filme é uma única mídia: em vez de publicar poster/ficha separadamente,
+    # usa a própria ficha como caption do arquivo enviado ao Telegram.
+    if kind == "filme" and target.is_file():
+        metadata = await _resolve_metadata(root, target, kind)
+        if metadata is None:
+            return
+
+        first_item = launcher._ACTIVE_ITEMS[0] if launcher._ACTIVE_ITEMS else None
+        _MOVIE_CAPTION = media_catalog.format_intro(
+            metadata,
+            kind,
+            quality=launcher._quality_for_item(first_item),
+            audio_labels=launcher._audio_labels_for_item(first_item),
+            max_length=TELEGRAM_CAPTION_SAFE_LIMIT,
+        )
+        print(f"Apresentação do filme será enviada junto ao arquivo: {metadata.title}")
+        return
 
     state = upload.load_json(launcher.INTRO_STATE_PATH, {"sent": {}})
     sent_state = state.setdefault("sent", {})

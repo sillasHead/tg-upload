@@ -124,16 +124,40 @@ async def _send_media(
         )
 
     suffix = item.path.suffix.casefold()
-    effective_document = as_document or (
-        suffix == ".mkv" and launcher._ACTIVE_PLAYBACK_FIX == "off"
-    )
-    await _ORIGINAL_SEND_MEDIA(
-        client,
-        entity,
-        item,
-        effective_document,
-        topic_id,
-    )
+    dubbed_mkv = False
+    if suffix == ".mkv":
+        try:
+            probe = launcher.media_compat.probe_media(item.path)
+            dubbed_mkv = any(
+                (audio.language or "").casefold() in {"por", "pt", "pt-br", "pt_br", "pob"}
+                or "portugu" in (audio.title or "").casefold()
+                or "brazil" in (audio.title or "").casefold()
+                for audio in probe.audios
+            )
+        except RuntimeError as exc:
+            print(f"Detecção de dublagem: análise ignorada ({exc})")
+
+    # Regra da biblioteca:
+    # - MKV com áudio PT-BR: mídia dublada/dual -> tentar envio reproduzível.
+    # - MKV sem áudio PT-BR: legendado/original -> preservar como documento.
+    # O playback-fix automático só é ativado durante o envio do MKV dublado,
+    # para manter o comportamento explícito de --playback-fix nos demais casos.
+    effective_document = as_document or (suffix == ".mkv" and not dubbed_mkv)
+    previous_playback_fix = launcher._ACTIVE_PLAYBACK_FIX
+    if dubbed_mkv and not as_document:
+        launcher._ACTIVE_PLAYBACK_FIX = "auto"
+        print("MKV dublado/dual detectado: envio em modo reproduzível.")
+
+    try:
+        await _ORIGINAL_SEND_MEDIA(
+            client,
+            entity,
+            item,
+            effective_document,
+            topic_id,
+        )
+    finally:
+        launcher._ACTIVE_PLAYBACK_FIX = previous_playback_fix
 
 
 def _tmdb_credential(config: dict) -> str | None:

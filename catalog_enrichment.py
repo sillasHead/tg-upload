@@ -201,11 +201,12 @@ def _oggy_fandom_ptbr_title(
     metadata: anime_catalog.AnimeMetadata,
     original_title: str | None,
 ) -> str | None:
-    """Resolve a Brazilian Portuguese Oggy title through Fandom interlanguage links.
+    """Resolve a Brazilian Portuguese Oggy title without machine translation.
 
-    This is a community fallback used only when TMDB has no explicit pt-BR
-    episode translation. It maps by the original episode title, so it does not
-    depend on differing episode-number schemes between catalogs/releases.
+    First tries the English wiki's explicit pt-BR interlanguage link. Some Oggy
+    episode pages do not expose langlinks, so a second pass searches the pt-BR
+    wiki for the original English title and accepts a result only when the
+    search snippet contains that original title.
     """
     if not original_title:
         return None
@@ -216,11 +217,14 @@ def _oggy_fandom_ptbr_title(
     if not any("oggy" in value for value in series_names if value):
         return None
 
+    original = str(original_title).strip()
+
+    # 1) Explicit interlanguage mapping from the English Oggy wiki.
     params = urllib.parse.urlencode(
         {
             "action": "query",
             "prop": "langlinks",
-            "titles": str(original_title).strip(),
+            "titles": original,
             "lllang": "pt-br",
             "format": "json",
             "formatversion": 2,
@@ -231,24 +235,67 @@ def _oggy_fandom_ptbr_title(
     try:
         payload = _request_json(url, attempts=2)
     except RuntimeError:
-        return None
+        payload = None
 
     query = payload.get("query") if isinstance(payload, dict) else None
     pages = query.get("pages") if isinstance(query, dict) else None
-    if not isinstance(pages, list) or not pages:
+    if isinstance(pages, list) and pages:
+        links = pages[0].get("langlinks") if isinstance(pages[0], dict) else None
+        if isinstance(links, list):
+            for link in links:
+                if not isinstance(link, dict):
+                    continue
+                if str(link.get("lang") or "").casefold() not in {"pt-br", "pt_br"}:
+                    continue
+                title = str(link.get("title") or link.get("*") or "").strip()
+                if title:
+                    return title
+
+    # 2) Search the Brazilian wiki by the original title. This covers pages that
+    # exist in pt-BR but are not connected through Fandom langlinks.
+    search_params = urllib.parse.urlencode(
+        {
+            "action": "query",
+            "list": "search",
+            "srsearch": f'"{original}"',
+            "srwhat": "text",
+            "srlimit": 5,
+            "format": "json",
+            "formatversion": 2,
+        }
+    )
+    search_url = (
+        "https://oggy-e-as-baratas-tontas.fandom.com/pt-br/api.php?"
+        + search_params
+    )
+    try:
+        search_payload = _request_json(search_url, attempts=2)
+    except RuntimeError:
         return None
 
-    links = pages[0].get("langlinks") if isinstance(pages[0], dict) else None
-    if not isinstance(links, list):
+    search_query = (
+        search_payload.get("query")
+        if isinstance(search_payload, dict)
+        else None
+    )
+    results = (
+        search_query.get("search")
+        if isinstance(search_query, dict)
+        else None
+    )
+    if not isinstance(results, list):
         return None
 
-    for link in links:
-        if not isinstance(link, dict):
+    wanted = _normalized(original)
+    for result in results:
+        if not isinstance(result, dict):
             continue
-        if str(link.get("lang") or "").casefold() not in {"pt-br", "pt_br"}:
+        title = str(result.get("title") or "").strip()
+        snippet = re.sub(r"<[^>]+>", " ", str(result.get("snippet") or ""))
+        if not title:
             continue
-        title = str(link.get("title") or link.get("*") or "").strip()
-        if title:
+        haystack = _normalized(f"{title} {snippet}")
+        if wanted and wanted in haystack:
             return title
     return None
 

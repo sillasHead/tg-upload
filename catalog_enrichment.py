@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import html
 import json
 import re
 import time
@@ -221,6 +222,50 @@ def _oggy_fandom_ptbr_title(
 
     candidates: list[str] = [original]
 
+    def page_language_title(title: str, language: str) -> str | None:
+        """Read the rendered Other languages table from the English episode page."""
+        params = urllib.parse.urlencode(
+            {
+                "action": "parse",
+                "page": title,
+                "prop": "text",
+                "format": "json",
+                "formatversion": 2,
+                "redirects": 1,
+            }
+        )
+        url = f"https://oggyandthecockroaches.fandom.com/api.php?{params}"
+        try:
+            payload = _request_json(url, attempts=2)
+        except RuntimeError:
+            return None
+        parsed = payload.get("parse") if isinstance(payload, dict) else None
+        raw_html = parsed.get("text") if isinstance(parsed, dict) else None
+        if isinstance(raw_html, dict):
+            raw_html = raw_html.get("*")
+        if not isinstance(raw_html, str) or not raw_html:
+            return None
+
+        wanted_language = _normalized(language)
+        for row_match in re.finditer(
+            r"(?is)<tr\b[^>]*>(.*?)</tr>",
+            raw_html,
+        ):
+            cells = []
+            for cell_match in re.finditer(
+                r"(?is)<t[dh]\b[^>]*>(.*?)</t[dh]>",
+                row_match.group(1),
+            ):
+                value = re.sub(r"(?is)<[^>]+>", " ", cell_match.group(1))
+                value = html.unescape(value)
+                value = re.sub(r"\s+", " ", value).strip()
+                cells.append(value)
+            if len(cells) < 2 or _normalized(cells[0]) != wanted_language:
+                continue
+            value = cells[1].strip()
+            return value or None
+        return None
+
     def langlink(title: str, language: str) -> str | None:
         params = urllib.parse.urlencode(
             {
@@ -261,6 +306,11 @@ def _oggy_fandom_ptbr_title(
     # Important for Oggy: distributor episode numbers/order differ, so derive the
     # French title from the English wiki page itself rather than TMDB SxxExx.
     french = langlink(original, "fr")
+    if not french:
+        # Fandom often renders its "Other languages" table inside the article
+        # instead of exposing it as a MediaWiki langlink. Read that table so the
+        # French original can still bridge English release names to the pt-BR wiki.
+        french = page_language_title(original, "French")
     if french:
         candidates.append(french)
 

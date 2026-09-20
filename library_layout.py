@@ -333,7 +333,10 @@ def format_caption(
 
     title = TRAILING_QUALITY_RE.sub("", item.title or "").strip()
     line = f"#{item.code}"
-    if title:
+    # A title that only contains the same quality tag is not an episode title.
+    # Keep the quality once in the details block instead of producing
+    # "#S01E01 - [1080p] [1080p ...]".
+    if title and not QUALITY_RE.fullmatch(title):
         line += f" - {title}"
 
     details = [value for value in (quality, release) if value]

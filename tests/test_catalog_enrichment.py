@@ -174,7 +174,7 @@ class CatalogEnrichmentTests(unittest.TestCase):
 
     def test_tmdb_fallback_english_is_not_marked_as_ptbr(self):
         metadata = anime_catalog.AnimeMetadata(
-            title="Oggy e as Baratas Tontas",
+            title="Uma Série Qualquer",
             source="tmdb",
             source_id=2777,
         )

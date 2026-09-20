@@ -143,6 +143,35 @@ class CatalogEnrichmentTests(unittest.TestCase):
             catalog_enrichment._EPISODE_TITLES = previous_titles
             catalog_enrichment._EPISODE_TITLES_LOCALIZED = previous_localized
 
+    def test_oggy_fandom_langlink_provides_ptbr_title(self):
+        metadata = anime_catalog.AnimeMetadata(
+            title="Oggy e as Baratas Tontas",
+            source="tmdb",
+            source_id=2777,
+        )
+        payload = {
+            "query": {
+                "pages": [
+                    {
+                        "langlinks": [
+                            {
+                                "lang": "pt-br",
+                                "title": "Chocolate Amargo",
+                            }
+                        ]
+                    }
+                ]
+            }
+        }
+        with patch("catalog_enrichment._request_json", return_value=payload) as request:
+            title = catalog_enrichment._oggy_fandom_ptbr_title(
+                metadata,
+                "Bitter Chocolate",
+            )
+        self.assertEqual(title, "Chocolate Amargo")
+        self.assertIn("langlinks", request.call_args.args[0])
+        self.assertIn("pt-br", request.call_args.args[0])
+
     def test_tmdb_fallback_english_is_not_marked_as_ptbr(self):
         metadata = anime_catalog.AnimeMetadata(
             title="Oggy e as Baratas Tontas",

@@ -143,6 +143,87 @@ class CatalogEnrichmentTests(unittest.TestCase):
             catalog_enrichment._EPISODE_TITLES = previous_titles
             catalog_enrichment._EPISODE_TITLES_LOCALIZED = previous_localized
 
+    def test_tmdb_fallback_english_is_not_marked_as_ptbr(self):
+        metadata = anime_catalog.AnimeMetadata(
+            title="Oggy e as Baratas Tontas",
+            source="tmdb",
+            source_id=2777,
+        )
+        localized = {
+            "episodes": [
+                {"episode_number": 1, "name": "Bitter Chocolate"},
+            ]
+        }
+        english = {
+            "episodes": [
+                {"episode_number": 1, "name": "Bitter Chocolate"},
+            ]
+        }
+
+        old_entrypoint = catalog_enrichment._ENTRYPOINT
+        catalog_enrichment._ENTRYPOINT = SimpleNamespace(
+            _tmdb_credential=lambda config: "token"
+        )
+        try:
+            with patch("catalog_enrichment.upload.load_json", return_value={}):
+                with patch(
+                    "catalog_enrichment.media_catalog._tmdb_json",
+                    side_effect=[localized, english, {"translations": []}],
+                ):
+                    titles, localized_codes = catalog_enrichment._tmdb_season_titles(
+                        metadata,
+                        {1},
+                    )
+            self.assertEqual(titles["S01E01"], "Bitter Chocolate")
+            self.assertNotIn("S01E01", localized_codes)
+        finally:
+            catalog_enrichment._ENTRYPOINT = old_entrypoint
+
+    def test_tmdb_explicit_ptbr_translation_is_preferred(self):
+        metadata = anime_catalog.AnimeMetadata(
+            title="Oggy e as Baratas Tontas",
+            source="tmdb",
+            source_id=2777,
+        )
+        localized = {
+            "episodes": [
+                {"episode_number": 1, "name": "Bitter Chocolate"},
+            ]
+        }
+        english = {
+            "episodes": [
+                {"episode_number": 1, "name": "Bitter Chocolate"},
+            ]
+        }
+        translations = {
+            "translations": [
+                {
+                    "iso_639_1": "pt",
+                    "iso_3166_1": "BR",
+                    "data": {"name": "Chocolate Amargo"},
+                }
+            ]
+        }
+
+        old_entrypoint = catalog_enrichment._ENTRYPOINT
+        catalog_enrichment._ENTRYPOINT = SimpleNamespace(
+            _tmdb_credential=lambda config: "token"
+        )
+        try:
+            with patch("catalog_enrichment.upload.load_json", return_value={}):
+                with patch(
+                    "catalog_enrichment.media_catalog._tmdb_json",
+                    side_effect=[localized, english, translations],
+                ):
+                    titles, localized_codes = catalog_enrichment._tmdb_season_titles(
+                        metadata,
+                        {1},
+                    )
+            self.assertEqual(titles["S01E01"], "Chocolate Amargo")
+            self.assertIn("S01E01", localized_codes)
+        finally:
+            catalog_enrichment._ENTRYPOINT = old_entrypoint
+
     def test_catalog_fixes_marks_tmdb_ptbr_titles_as_localized(self):
         import catalog_fixes
 

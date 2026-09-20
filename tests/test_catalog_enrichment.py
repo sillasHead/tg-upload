@@ -172,34 +172,44 @@ class CatalogEnrichmentTests(unittest.TestCase):
         self.assertIn("langlinks", request.call_args.args[0])
         self.assertIn("pt-br", request.call_args.args[0])
 
-    def test_oggy_ptbr_lookup_uses_french_alias_when_english_fails(self):
+    def test_oggy_ptbr_lookup_uses_french_langlink_when_numbers_differ(self):
         metadata = anime_catalog.AnimeMetadata(
             title="Oggy e as Baratas Tontas",
             source="tmdb",
             source_id=2777,
         )
-        no_links = {"query": {"pages": [{"langlinks": []}]}}
-        no_search = {"query": {"search": []}}
+        no_ptbr = {"query": {"pages": [{"langlinks": []}]}}
+        french_link = {
+            "query": {
+                "pages": [
+                    {
+                        "langlinks": [
+                            {"lang": "fr", "title": "Le Ticket De Loto"}
+                        ]
+                    }
+                ]
+            }
+        }
         french_search = {
             "query": {
                 "search": [
                     {
                         "title": "O Bilhete de Loteria",
-                        "snippet": "Le ticket de loto no original em Francês",
+                        "snippet": "Le Ticket De Loto no original em Francês",
                     }
                 ]
             }
         }
         with patch(
             "catalog_enrichment._request_json",
-            side_effect=[no_links, no_search, no_links, french_search],
+            side_effect=[no_ptbr, french_link, {"query": {"search": []}}, french_search],
         ):
             title = catalog_enrichment._oggy_fandom_ptbr_title(
                 metadata,
                 "The Lottery Ticket",
-                aliases=("Le ticket de loto",),
             )
         self.assertEqual(title, "O Bilhete de Loteria")
+
 
     def test_oggy_ptbr_search_fallback_handles_missing_langlink(self):
         metadata = anime_catalog.AnimeMetadata(

@@ -315,9 +315,15 @@ class CatalogEnrichmentTests(unittest.TestCase):
                 ]
             }
         }
+        rendered_without_french = {"parse": {"text": "<p>No language table.</p>"}}
         with patch(
             "catalog_enrichment._request_json",
-            side_effect=[langlinks_payload, langlinks_payload, search_payload],
+            side_effect=[
+                langlinks_payload,
+                langlinks_payload,
+                rendered_without_french,
+                search_payload,
+            ],
         ):
             title = catalog_enrichment._oggy_fandom_ptbr_title(
                 metadata,

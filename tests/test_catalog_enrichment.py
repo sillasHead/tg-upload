@@ -110,6 +110,39 @@ class CatalogEnrichmentTests(unittest.TestCase):
 
         self.assertEqual(loaded, {"S01E01": "Metamorphosis"})
 
+    def test_smart_caption_prefers_official_ptbr_episode_title_over_english_filename(self):
+        item = SimpleNamespace(
+            path=Path("S01E01 - Bitter Chocolate [720p].mp4"),
+            season=1,
+            episode=1,
+            code="S01E01",
+            title="Bitter Chocolate [720p]",
+        )
+        context = SimpleNamespace(
+            metadata=anime_catalog.AnimeMetadata(title="Oggy e as Baratas Tontas"),
+            search_tag="Oggy",
+            include_search_tag=True,
+        )
+        fake_layout = SimpleNamespace(
+            _CONTEXT=context,
+            _launcher=lambda: SimpleNamespace(_quality_for_item=lambda value: "720p"),
+            _probe=lambda value: None,
+            classify_release=lambda value: None,
+            format_caption=lambda value, **kwargs: value.title,
+        )
+        previous_layout = catalog_enrichment._LIBRARY_LAYOUT
+        previous_titles = catalog_enrichment._EPISODE_TITLES
+        previous_localized = catalog_enrichment._EPISODE_TITLES_LOCALIZED
+        catalog_enrichment._LIBRARY_LAYOUT = fake_layout
+        catalog_enrichment._EPISODE_TITLES = {"S01E01": "Chocolate Amargo"}
+        catalog_enrichment._EPISODE_TITLES_LOCALIZED = {"S01E01"}
+        try:
+            self.assertEqual(catalog_enrichment.smart_caption(item), "Chocolate Amargo")
+        finally:
+            catalog_enrichment._LIBRARY_LAYOUT = previous_layout
+            catalog_enrichment._EPISODE_TITLES = previous_titles
+            catalog_enrichment._EPISODE_TITLES_LOCALIZED = previous_localized
+
 
 if __name__ == "__main__":
     unittest.main()

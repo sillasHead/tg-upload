@@ -303,8 +303,54 @@ def _oggy_fandom_ptbr_title(
             snippet = re.sub(r"<[^>]+>", " ", str(result.get("snippet") or ""))
             if not title:
                 continue
+
+            # MediaWiki's search snippet is only a small window around one match.
+            # For Oggy it often omits the original English/French title even when
+            # the returned Brazilian page is the correct episode. First keep the
+            # cheap snippet check, then verify the complete page extract before
+            # accepting the Brazilian page title.
             haystack = _normalized(f"{title} {snippet}")
             if wanted and wanted in haystack:
+                if _normalized(title) != wanted:
+                    return title
+                continue
+
+            verify_params = urllib.parse.urlencode(
+                {
+                    "action": "query",
+                    "prop": "extracts",
+                    "titles": title,
+                    "explaintext": 1,
+                    "exsectionformat": "plain",
+                    "format": "json",
+                    "formatversion": 2,
+                    "redirects": 1,
+                }
+            )
+            verify_url = (
+                "https://oggy-e-as-baratas-tontas.fandom.com/pt-br/api.php?"
+                + verify_params
+            )
+            try:
+                verify_payload = _request_json(verify_url, attempts=2)
+            except RuntimeError:
+                continue
+
+            verify_query = (
+                verify_payload.get("query")
+                if isinstance(verify_payload, dict)
+                else None
+            )
+            verify_pages = (
+                verify_query.get("pages")
+                if isinstance(verify_query, dict)
+                else None
+            )
+            if not isinstance(verify_pages, list) or not verify_pages:
+                continue
+            page = verify_pages[0] if isinstance(verify_pages[0], dict) else {}
+            extract = _normalized(str(page.get("extract") or ""))
+            if wanted and wanted in extract and _normalized(title) != wanted:
                 return title
     return None
 

@@ -82,8 +82,9 @@ def _trim_episode_separator(value: str) -> str:
 
 
 def _strip_outer_release_tags(value: str) -> str:
+    # Remove release-group tags from the beginning, but keep trailing quality
+    # tags such as [720p]/[1080p]. Those are part of the Telegram caption.
     value = re.sub(r"^(?:\[[^\]]+\]\s*)+", "", value)
-    value = re.sub(r"(?:\s*\[[^\]]+\])+$", "", value)
     return value.strip()
 
 

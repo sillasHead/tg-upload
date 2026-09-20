@@ -192,9 +192,9 @@ catalog_fixes.install(entrypoint, catalog_enrichment, library_layout)
 
 
 # Política visual final da biblioteca:
-# - S01E01 continua pesquisável como texto normal, sem virar hashtag global;
-# - a tag da obra aparece somente na apresentação, uma única vez;
-# - cabeçalhos de temporada não repetem hashtags;
+# - episódios preservam #S01E01 para busca rápida;
+# - a tag canônica da obra também permanece na caption quando disponível;
+# - cabeçalhos de temporada continuam limpos;
 # - hífens que fazem parte do título oficial da obra são preservados.
 _ORIGINAL_FORMAT_INTRO = media_catalog.format_intro
 
@@ -242,13 +242,16 @@ def _format_episode_caption(
         return item.title or item.path.stem
 
     title = library_layout.TRAILING_QUALITY_RE.sub("", item.title or "").strip()
-    line = item.code
+    line = f"#{item.code}"
     if title:
         line += f" - {title}"
 
     details = [value for value in (quality, release) if value]
     if details:
         line += " [" + " • ".join(details) + "]"
+
+    if search_tag:
+        line += f"\n#{search_tag}"
     return line
 
 

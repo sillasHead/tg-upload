@@ -30,6 +30,7 @@ _TELEGRAM_VIDEO = None
 _ORIGINAL_PRIME_CONTEXT = None
 _ORIGINAL_VIDEO_THUMBNAIL = None
 _EPISODE_TITLES: dict[str, str] = {}
+_EPISODE_TITLES_LOCALIZED: set[str] = set()
 _CONTEXT_KEY: tuple[Any, ...] | None = None
 _WARNED: set[str] = set()
 
@@ -199,16 +200,17 @@ def _jikan_episode_titles(mal_id: int) -> dict[str, str]:
 def _tmdb_season_titles(
     metadata: anime_catalog.AnimeMetadata,
     seasons: set[int],
-) -> dict[str, str]:
+) -> tuple[dict[str, str], set[str]]:
     if _ENTRYPOINT is None or metadata.source != "tmdb" or metadata.source_id is None:
-        return {}
+        return {}, set()
 
     config = upload.load_json(upload.CONFIG_PATH, {})
     credential = _ENTRYPOINT._tmdb_credential(config)
     if not credential:
-        return {}
+        return {}, set()
 
     titles: dict[str, str] = {}
+    localized_codes: set[str] = set()
     for season in sorted(value for value in seasons if value >= 0):
         try:
             localized = media_catalog._tmdb_json(
@@ -233,7 +235,9 @@ def _tmdb_season_titles(
                 continue
             title = _useful_episode_name(entry.get("name"), number)
             if title:
-                titles[f"S{season:02d}E{number:02d}"] = title
+                code = f"S{season:02d}E{number:02d}"
+                titles[code] = title
+                localized_codes.add(code)
             else:
                 unresolved.add(number)
 
@@ -262,7 +266,7 @@ def _tmdb_season_titles(
                 if title:
                     titles[f"S{season:02d}E{number:02d}"] = title
 
-    return titles
+    return titles, localized_codes
 
 
 def _cached_titles(root: Path, provider: str, catalog_id: int) -> dict[str, str]:
@@ -315,7 +319,7 @@ def _active_seasons() -> set[int]:
 
 
 def _load_episode_titles() -> None:
-    global _EPISODE_TITLES, _CONTEXT_KEY
+    global _EPISODE_TITLES, _EPISODE_TITLES_LOCALIZED, _CONTEXT_KEY
     if _LIBRARY_LAYOUT is None:
         return
 
@@ -324,6 +328,7 @@ def _load_episode_titles() -> None:
     metadata = context.metadata
     if root is None or metadata is None or context.kind not in {"anime", "desenho", "serie"}:
         _EPISODE_TITLES = {}
+        _EPISODE_TITLES_LOCALIZED = set()
         _CONTEXT_KEY = None
         return
 
@@ -338,6 +343,7 @@ def _load_episode_titles() -> None:
         return
     _CONTEXT_KEY = key
     _EPISODE_TITLES = {}
+    _EPISODE_TITLES_LOCALIZED = set()
 
     if context.kind == "anime" and metadata.source == "anilist":
         profile = _profile(root)
@@ -391,18 +397,21 @@ def _load_episode_titles() -> None:
             for prefix in required_prefixes
             if any(code.startswith(prefix) for code in cached)
         }
+        # Old caches did not record which titles actually came from pt-BR.
+        # Refresh active seasons so localized TMDB titles can replace English/file names.
         if cached_prefixes == required_prefixes:
-            _EPISODE_TITLES = cached
-            return
+            missing_seasons = set(seasons)
+        else:
+            missing_seasons = {
+                season
+                for season in seasons
+                if f"S{season:02d}E" not in cached_prefixes
+            }
 
-        missing_seasons = {
-            season
-            for season in seasons
-            if f"S{season:02d}E" not in cached_prefixes
-        }
-        fetched = _tmdb_season_titles(metadata, missing_seasons)
+        fetched, localized_codes = _tmdb_season_titles(metadata, missing_seasons)
         merged = {**cached, **fetched}
         _EPISODE_TITLES = merged
+        _EPISODE_TITLES_LOCALIZED = localized_codes
         if fetched:
             try:
                 _save_titles(root, "tmdb", catalog_id, merged)
@@ -540,7 +549,14 @@ def smart_caption(item: upload.MediaItem) -> str:
     title = _existing_episode_title(item.title, context.metadata)
     if item.code and _looks_like_series_title(title, context.metadata, item.season):
         title = ""
-    if item.code and not title:
+
+    # For TV/cartoon libraries, an official pt-BR TMDB episode title wins over
+    # the filename's English title. If TMDB has no pt-BR title, preserve the
+    # existing filename title; only then fall back to the catalog (usually en-US).
+    localized_title = _EPISODE_TITLES.get(item.code, "") if item.code in _EPISODE_TITLES_LOCALIZED else ""
+    if item.code and localized_title:
+        title = localized_title
+    elif item.code and not title:
         title = _EPISODE_TITLES.get(item.code, "")
 
     display_item = upload.MediaItem(

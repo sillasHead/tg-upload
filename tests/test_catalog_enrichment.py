@@ -253,6 +253,38 @@ class CatalogEnrichmentTests(unittest.TestCase):
         finally:
             catalog_enrichment._ENTRYPOINT = old_entrypoint
 
+    def test_active_season_poster_uses_tmdb_season_artwork(self):
+        import entrypoint
+
+        metadata = anime_catalog.AnimeMetadata(
+            title="Oggy e as Baratas Tontas",
+            source="tmdb",
+            source_id=2777,
+            poster="https://image.tmdb.org/t/p/w780/show.jpg",
+        )
+        previous_items = entrypoint.launcher._ACTIVE_ITEMS
+        entrypoint.launcher._ACTIVE_ITEMS = [
+            SimpleNamespace(season=1),
+            SimpleNamespace(season=1),
+        ]
+        try:
+            with patch("entrypoint.upload.load_json", return_value={}):
+                with patch("entrypoint._tmdb_credential", return_value="token"):
+                    with patch(
+                        "entrypoint.media_catalog._tmdb_json",
+                        return_value={"poster_path": "/season1.jpg"},
+                    ):
+                        updated = entrypoint._metadata_with_active_season_poster(
+                            metadata,
+                            "desenho",
+                        )
+            self.assertEqual(
+                updated.poster,
+                f"{entrypoint.media_catalog.TMDB_IMAGE_BASE}/season1.jpg",
+            )
+        finally:
+            entrypoint.launcher._ACTIVE_ITEMS = previous_items
+
     def test_catalog_fixes_marks_tmdb_ptbr_titles_as_localized(self):
         import catalog_fixes
 

@@ -463,6 +463,55 @@ async def _send_text_chunks(
         )
 
 
+def _metadata_with_active_season_poster(
+    metadata: anime_catalog.AnimeMetadata,
+    kind: str,
+) -> anime_catalog.AnimeMetadata:
+    """Use the TMDB poster for the season currently being uploaded when possible.
+
+    For series/cartoon uploads containing exactly one season, the presentation
+    should visually represent that season instead of using the show's generic
+    poster, which TMDB may update to artwork from a much newer season.
+    """
+    if (
+        kind not in {"desenho", "serie"}
+        or metadata.source != "tmdb"
+        or metadata.source_id is None
+    ):
+        return metadata
+
+    seasons = {
+        int(item.season)
+        for item in launcher._ACTIVE_ITEMS
+        if getattr(item, "season", None) is not None
+    }
+    if len(seasons) != 1:
+        return metadata
+
+    season = next(iter(seasons))
+    credential = _tmdb_credential(upload.load_json(upload.CONFIG_PATH, {}))
+    if not credential:
+        return metadata
+
+    try:
+        details = media_catalog._tmdb_json(
+            f"/tv/{int(metadata.source_id)}/season/{season}",
+            credential,
+            {"language": "pt-BR"},
+        )
+    except Exception:
+        return metadata
+
+    poster_path = details.get("poster_path") if isinstance(details, dict) else None
+    if not poster_path:
+        return metadata
+
+    return replace(
+        metadata,
+        poster=f"{media_catalog.TMDB_IMAGE_BASE}{poster_path}",
+    )
+
+
 async def _publish_intro(
     client,
     destination: upload.Destination,
@@ -485,7 +534,8 @@ async def _publish_intro(
     synopsis_block = f"📝 Sinopse:\n{synopsis}" if synopsis else ""
     full_intro = base + (f"\n\n{synopsis_block}" if synopsis_block else "")
 
-    poster, tempdir = media_catalog.resolve_poster(metadata, root)
+    poster_metadata = _metadata_with_active_season_poster(metadata, kind)
+    poster, tempdir = media_catalog.resolve_poster(poster_metadata, root)
 
     try:
         if poster is not None:

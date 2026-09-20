@@ -319,12 +319,12 @@ def _oggy_fandom_ptbr_title(
         if value and value.casefold() not in {item.casefold() for item in candidates}:
             candidates.append(value)
 
-    for candidate in candidates:
+    def search_candidate(candidate: str, search_text: str) -> str | None:
         search_params = urllib.parse.urlencode(
             {
                 "action": "query",
                 "list": "search",
-                "srsearch": f'"{candidate}"',
+                "srsearch": search_text,
                 "srwhat": "text",
                 "srlimit": 8,
                 "format": "json",
@@ -338,33 +338,42 @@ def _oggy_fandom_ptbr_title(
         try:
             search_payload = _request_json(search_url, attempts=2)
         except RuntimeError:
-            continue
+            return None
 
-        search_query = search_payload.get("query") if isinstance(search_payload, dict) else None
-        results = search_query.get("search") if isinstance(search_query, dict) else None
+        search_query = (
+            search_payload.get("query")
+            if isinstance(search_payload, dict)
+            else None
+        )
+        results = (
+            search_query.get("search")
+            if isinstance(search_query, dict)
+            else None
+        )
         if not isinstance(results, list):
-            continue
+            return None
 
         wanted = _normalized(candidate)
         for result in results:
             if not isinstance(result, dict):
                 continue
             title = str(result.get("title") or "").strip()
-            snippet = re.sub(r"<[^>]+>", " ", str(result.get("snippet") or ""))
+            snippet = re.sub(
+                r"<[^>]+>",
+                " ",
+                str(result.get("snippet") or ""),
+            )
             if not title:
                 continue
 
-            # MediaWiki's search snippet is only a small window around one match.
-            # For Oggy it often omits the original English/French title even when
-            # the returned Brazilian page is the correct episode. First keep the
-            # cheap snippet check, then verify the complete page extract before
-            # accepting the Brazilian page title.
             haystack = _normalized(f"{title} {snippet}")
             if wanted and wanted in haystack:
                 if _normalized(title) != wanted:
                     return title
                 continue
 
+            # Search snippets can omit the original/French title. Check the
+            # complete article extract before rejecting a candidate.
             verify_params = urllib.parse.urlencode(
                 {
                     "action": "query",
@@ -384,7 +393,7 @@ def _oggy_fandom_ptbr_title(
             try:
                 verify_payload = _request_json(verify_url, attempts=2)
             except RuntimeError:
-                continue
+                verify_payload = None
 
             verify_query = (
                 verify_payload.get("query")
@@ -396,12 +405,69 @@ def _oggy_fandom_ptbr_title(
                 if isinstance(verify_query, dict)
                 else None
             )
-            if not isinstance(verify_pages, list) or not verify_pages:
-                continue
-            page = verify_pages[0] if isinstance(verify_pages[0], dict) else {}
+            page = (
+                verify_pages[0]
+                if isinstance(verify_pages, list)
+                and verify_pages
+                and isinstance(verify_pages[0], dict)
+                else {}
+            )
             extract = _normalized(str(page.get("extract") or ""))
             if wanted and wanted in extract and _normalized(title) != wanted:
                 return title
+
+            # Some Fandom pages keep the original/French name only in the
+            # infobox/template, which is omitted by prop=extracts. Parse the
+            # raw wikitext as a final verification source.
+            source_params = urllib.parse.urlencode(
+                {
+                    "action": "parse",
+                    "page": title,
+                    "prop": "wikitext",
+                    "format": "json",
+                    "formatversion": 2,
+                    "redirects": 1,
+                }
+            )
+            source_url = (
+                "https://oggy-e-as-baratas-tontas.fandom.com/pt-br/api.php?"
+                + source_params
+            )
+            try:
+                source_payload = _request_json(source_url, attempts=2)
+            except RuntimeError:
+                continue
+            parsed = (
+                source_payload.get("parse")
+                if isinstance(source_payload, dict)
+                else None
+            )
+            raw_source = (
+                parsed.get("wikitext")
+                if isinstance(parsed, dict)
+                else None
+            )
+            if isinstance(raw_source, dict):
+                raw_source = raw_source.get("*")
+            source = _normalized(str(raw_source or ""))
+            if wanted and wanted in source and _normalized(title) != wanted:
+                return title
+        return None
+
+    # First keep the precise quoted search. It is safer when Fandom's index is
+    # healthy and preserves the old behavior.
+    for candidate in candidates:
+        resolved = search_candidate(candidate, f'"{candidate}"')
+        if resolved:
+            return resolved
+
+    # Fandom's text index does not consistently return quoted phrases. Retry
+    # without quotes only after all exact candidates failed, then verify the
+    # returned page content before accepting its Brazilian title.
+    for candidate in candidates:
+        resolved = search_candidate(candidate, candidate)
+        if resolved:
+            return resolved
     return None
 
 

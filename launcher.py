@@ -94,9 +94,7 @@ def _clean_episode_title(stem: str, match: re.Match[str] | None) -> str:
         before = _strip_outer_release_tags(
             _trim_episode_separator(stem[: match.start()])
         )
-        after = _strip_outer_release_tags(
-            _trim_episode_separator(stem[match.end() :])
-        )
+        after = _trim_episode_separator(stem[match.end() :])
         if before and after:
             title = f"{before} - {after}"
         else:

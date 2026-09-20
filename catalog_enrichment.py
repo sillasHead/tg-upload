@@ -197,6 +197,47 @@ def _jikan_episode_titles(mal_id: int) -> dict[str, str]:
     return titles
 
 
+def _tmdb_episode_ptbr_title(
+    metadata: anime_catalog.AnimeMetadata,
+    season: int,
+    episode: int,
+    credential: str,
+) -> str | None:
+    """Return only an explicit Brazilian Portuguese episode translation.
+
+    TMDB may return the original/English title even when language=pt-BR if no
+    Brazilian Portuguese translation exists. The translations endpoint lets us
+    distinguish a real pt-BR title from that fallback.
+    """
+    try:
+        payload = media_catalog._tmdb_json(
+            f"/tv/{int(metadata.source_id)}/season/{season}/episode/{episode}/translations",
+            credential,
+            {},
+        )
+    except Exception:
+        return None
+
+    translations = payload.get("translations") if isinstance(payload, dict) else None
+    if not isinstance(translations, list):
+        return None
+
+    for entry in translations:
+        if not isinstance(entry, dict):
+            continue
+        if str(entry.get("iso_639_1") or "").casefold() != "pt":
+            continue
+        if str(entry.get("iso_3166_1") or "").casefold() != "br":
+            continue
+        data = entry.get("data")
+        if not isinstance(data, dict):
+            continue
+        title = _useful_episode_name(data.get("name"), episode)
+        if title:
+            return title
+    return None
+
+
 def _tmdb_season_titles(
     metadata: anime_catalog.AnimeMetadata,
     seasons: set[int],
@@ -211,6 +252,7 @@ def _tmdb_season_titles(
 
     titles: dict[str, str] = {}
     localized_codes: set[str] = set()
+
     for season in sorted(value for value in seasons if value >= 0):
         try:
             localized = media_catalog._tmdb_json(
@@ -218,15 +260,23 @@ def _tmdb_season_titles(
                 credential,
                 {"language": "pt-BR"},
             )
+            english = media_catalog._tmdb_json(
+                f"/tv/{int(metadata.source_id)}/season/{season}",
+                credential,
+                {"language": "en-US"},
+            )
         except Exception:
             continue
 
-        entries = localized.get("episodes") if isinstance(localized, dict) else None
-        if not isinstance(entries, list):
+        localized_entries = localized.get("episodes") if isinstance(localized, dict) else None
+        english_entries = english.get("episodes") if isinstance(english, dict) else None
+        if not isinstance(localized_entries, list):
             continue
+        if not isinstance(english_entries, list):
+            english_entries = []
 
-        unresolved: set[int] = set()
-        for entry in entries:
+        english_by_number: dict[int, str] = {}
+        for entry in english_entries:
             if not isinstance(entry, dict):
                 continue
             try:
@@ -235,36 +285,53 @@ def _tmdb_season_titles(
                 continue
             title = _useful_episode_name(entry.get("name"), number)
             if title:
-                code = f"S{season:02d}E{number:02d}"
-                titles[code] = title
-                localized_codes.add(code)
-            else:
-                unresolved.add(number)
+                english_by_number[number] = title
 
-        if unresolved:
+        seen_numbers: set[int] = set()
+        for entry in localized_entries:
+            if not isinstance(entry, dict):
+                continue
             try:
-                english = media_catalog._tmdb_json(
-                    f"/tv/{int(metadata.source_id)}/season/{season}",
+                number = int(entry.get("episode_number"))
+            except (TypeError, ValueError):
+                continue
+
+            seen_numbers.add(number)
+            localized_title = _useful_episode_name(entry.get("name"), number)
+            english_title = english_by_number.get(number)
+            explicit_ptbr = None
+
+            # If pt-BR differs from en-US, TMDB clearly localized the title.
+            if localized_title and (
+                not english_title
+                or _normalized(localized_title) != _normalized(english_title)
+            ):
+                explicit_ptbr = localized_title
+            elif localized_title:
+                # Same text can be TMDB's fallback. Verify whether an explicit
+                # pt-BR translation actually exists before marking it localized.
+                explicit_ptbr = _tmdb_episode_ptbr_title(
+                    metadata,
+                    season,
+                    number,
                     credential,
-                    {"language": "en-US"},
                 )
-            except Exception:
+
+            code = f"S{season:02d}E{number:02d}"
+            if explicit_ptbr:
+                titles[code] = explicit_ptbr
+                localized_codes.add(code)
+            elif english_title:
+                titles[code] = english_title
+            elif localized_title:
+                titles[code] = localized_title
+
+        # Preserve English fallback entries that are absent from the localized
+        # payload entirely.
+        for number, english_title in english_by_number.items():
+            if number in seen_numbers:
                 continue
-            english_entries = english.get("episodes") if isinstance(english, dict) else None
-            if not isinstance(english_entries, list):
-                continue
-            for entry in english_entries:
-                if not isinstance(entry, dict):
-                    continue
-                try:
-                    number = int(entry.get("episode_number"))
-                except (TypeError, ValueError):
-                    continue
-                if number not in unresolved:
-                    continue
-                title = _useful_episode_name(entry.get("name"), number)
-                if title:
-                    titles[f"S{season:02d}E{number:02d}"] = title
+            titles[f"S{season:02d}E{number:02d}"] = english_title
 
     return titles, localized_codes
 

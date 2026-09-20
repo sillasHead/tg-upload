@@ -197,6 +197,62 @@ def _jikan_episode_titles(mal_id: int) -> dict[str, str]:
     return titles
 
 
+def _oggy_fandom_ptbr_title(
+    metadata: anime_catalog.AnimeMetadata,
+    original_title: str | None,
+) -> str | None:
+    """Resolve a Brazilian Portuguese Oggy title through Fandom interlanguage links.
+
+    This is a community fallback used only when TMDB has no explicit pt-BR
+    episode translation. It maps by the original episode title, so it does not
+    depend on differing episode-number schemes between catalogs/releases.
+    """
+    if not original_title:
+        return None
+    series_names = {
+        _normalized(metadata.title),
+        _normalized(metadata.original_title or ""),
+    }
+    if not any("oggy" in value for value in series_names if value):
+        return None
+
+    params = urllib.parse.urlencode(
+        {
+            "action": "query",
+            "prop": "langlinks",
+            "titles": str(original_title).strip(),
+            "lllang": "pt-br",
+            "format": "json",
+            "formatversion": 2,
+            "redirects": 1,
+        }
+    )
+    url = f"https://oggyandthecockroaches.fandom.com/api.php?{params}"
+    try:
+        payload = _request_json(url, attempts=2)
+    except RuntimeError:
+        return None
+
+    query = payload.get("query") if isinstance(payload, dict) else None
+    pages = query.get("pages") if isinstance(query, dict) else None
+    if not isinstance(pages, list) or not pages:
+        return None
+
+    links = pages[0].get("langlinks") if isinstance(pages[0], dict) else None
+    if not isinstance(links, list):
+        return None
+
+    for link in links:
+        if not isinstance(link, dict):
+            continue
+        if str(link.get("lang") or "").casefold() not in {"pt-br", "pt_br"}:
+            continue
+        title = str(link.get("title") or link.get("*") or "").strip()
+        if title:
+            return title
+    return None
+
+
 def _tmdb_episode_ptbr_title(
     metadata: anime_catalog.AnimeMetadata,
     season: int,
@@ -316,6 +372,9 @@ def _tmdb_season_titles(
                     number,
                     credential,
                 )
+
+            if not explicit_ptbr and english_title:
+                explicit_ptbr = _oggy_fandom_ptbr_title(metadata, english_title)
 
             code = f"S{season:02d}E{number:02d}"
             if explicit_ptbr:

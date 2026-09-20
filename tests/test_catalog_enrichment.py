@@ -211,6 +211,93 @@ class CatalogEnrichmentTests(unittest.TestCase):
         self.assertEqual(title, "O Bilhete de Loteria")
 
 
+    def test_oggy_ptbr_lookup_reads_french_title_from_rendered_page(self):
+        metadata = anime_catalog.AnimeMetadata(
+            title="Oggy e as Baratas Tontas",
+            source="tmdb",
+            source_id=2777,
+        )
+        no_langlinks = {"query": {"pages": [{"langlinks": []}]}}
+        rendered_page = {
+            "parse": {
+                "text": (
+                    "<table><tr><th>Language</th><th>Name</th></tr>"
+                    "<tr><td>French</td><td>Le Ticket De Loto</td>"
+                    "<td>Lottery Ticket</td></tr></table>"
+                )
+            }
+        }
+        no_english_search = {"query": {"search": []}}
+        french_search = {
+            "query": {
+                "search": [
+                    {
+                        "title": "O Bilhete de Loteria",
+                        "snippet": "Le Ticket De Loto no original em Francês",
+                    }
+                ]
+            }
+        }
+        with patch(
+            "catalog_enrichment._request_json",
+            side_effect=[
+                no_langlinks,
+                no_langlinks,
+                rendered_page,
+                no_english_search,
+                french_search,
+            ],
+        ):
+            title = catalog_enrichment._oggy_fandom_ptbr_title(
+                metadata,
+                "The Lottery Ticket",
+            )
+        self.assertEqual(title, "O Bilhete de Loteria")
+
+    def test_oggy_ptbr_search_verifies_full_page_when_snippet_omits_original(self):
+        metadata = anime_catalog.AnimeMetadata(
+            title="Oggy e as Baratas Tontas",
+            source="tmdb",
+            source_id=2777,
+        )
+        no_langlinks = {"query": {"pages": [{"langlinks": []}]}}
+        rendered_without_french = {"parse": {"text": "<p>No language table.</p>"}}
+        search_payload = {
+            "query": {
+                "search": [
+                    {
+                        "title": "O Bilhete de Loteria",
+                        "snippet": "Oggy tenta ficar com o prêmio das baratas.",
+                    }
+                ]
+            }
+        }
+        verify_payload = {
+            "query": {
+                "pages": [
+                    {
+                        "title": "O Bilhete de Loteria",
+                        "extract": "Título original: The Lottery Ticket. Oggy e Jack...",
+                    }
+                ]
+            }
+        }
+        with patch(
+            "catalog_enrichment._request_json",
+            side_effect=[
+                no_langlinks,
+                no_langlinks,
+                rendered_without_french,
+                search_payload,
+                verify_payload,
+            ],
+        ):
+            title = catalog_enrichment._oggy_fandom_ptbr_title(
+                metadata,
+                "The Lottery Ticket",
+            )
+        self.assertEqual(title, "O Bilhete de Loteria")
+
     def test_oggy_ptbr_search_fallback_handles_missing_langlink(self):
         metadata = anime_catalog.AnimeMetadata(
             title="Oggy e as Baratas Tontas",

@@ -143,6 +143,51 @@ class CatalogEnrichmentTests(unittest.TestCase):
             catalog_enrichment._EPISODE_TITLES = previous_titles
             catalog_enrichment._EPISODE_TITLES_LOCALIZED = previous_localized
 
+    def test_catalog_fixes_marks_tmdb_ptbr_titles_as_localized(self):
+        import catalog_fixes
+
+        metadata = anime_catalog.AnimeMetadata(
+            title="Oggy e as Baratas Tontas",
+            source="tmdb",
+            source_id=123,
+        )
+        context = SimpleNamespace(
+            root=Path("C:/Videos/Oggy e as Baratas Tontas"),
+            kind="desenho",
+            metadata=metadata,
+        )
+        fake_layout = SimpleNamespace(_CONTEXT=context)
+        fake_enrichment = SimpleNamespace(
+            _active_seasons=lambda: {1},
+            _CONTEXT_KEY=None,
+            _EPISODE_TITLES={},
+            _EPISODE_TITLES_LOCALIZED=set(),
+            _cached_titles=lambda *args: {"S01E01": "Bitter Chocolate"},
+            _tmdb_season_titles=lambda *args: (
+                {"S01E01": "Chocolate Amargo"},
+                {"S01E01"},
+            ),
+            _save_titles=lambda *args: None,
+        )
+
+        old_layout = catalog_fixes._LIBRARY_LAYOUT
+        old_enrichment = catalog_fixes._CATALOG_ENRICHMENT
+        catalog_fixes._LIBRARY_LAYOUT = fake_layout
+        catalog_fixes._CATALOG_ENRICHMENT = fake_enrichment
+        try:
+            catalog_fixes._load_episode_titles()
+            self.assertEqual(
+                fake_enrichment._EPISODE_TITLES["S01E01"],
+                "Chocolate Amargo",
+            )
+            self.assertIn(
+                "S01E01",
+                fake_enrichment._EPISODE_TITLES_LOCALIZED,
+            )
+        finally:
+            catalog_fixes._LIBRARY_LAYOUT = old_layout
+            catalog_fixes._CATALOG_ENRICHMENT = old_enrichment
+
 
 if __name__ == "__main__":
     unittest.main()

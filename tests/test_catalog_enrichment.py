@@ -172,6 +172,33 @@ class CatalogEnrichmentTests(unittest.TestCase):
         self.assertIn("langlinks", request.call_args.args[0])
         self.assertIn("pt-br", request.call_args.args[0])
 
+    def test_oggy_ptbr_search_fallback_handles_missing_langlink(self):
+        metadata = anime_catalog.AnimeMetadata(
+            title="Oggy e as Baratas Tontas",
+            source="tmdb",
+            source_id=2777,
+        )
+        langlinks_payload = {"query": {"pages": [{"langlinks": []}]}}
+        search_payload = {
+            "query": {
+                "search": [
+                    {
+                        "title": "O Bilhete de Loteria",
+                        "snippet": "Título original: The Lottery Ticket",
+                    }
+                ]
+            }
+        }
+        with patch(
+            "catalog_enrichment._request_json",
+            side_effect=[langlinks_payload, search_payload],
+        ):
+            title = catalog_enrichment._oggy_fandom_ptbr_title(
+                metadata,
+                "The Lottery Ticket",
+            )
+        self.assertEqual(title, "O Bilhete de Loteria")
+
     def test_tmdb_fallback_english_is_not_marked_as_ptbr(self):
         metadata = anime_catalog.AnimeMetadata(
             title="Uma Série Qualquer",

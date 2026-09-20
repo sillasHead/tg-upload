@@ -253,6 +253,7 @@ def _load_episode_titles() -> None:
         or context.kind not in {"anime", "desenho", "serie"}
     ):
         enrichment._EPISODE_TITLES = {}
+        enrichment._EPISODE_TITLES_LOCALIZED = set()
         enrichment._CONTEXT_KEY = None
         return
 
@@ -270,6 +271,7 @@ def _load_episode_titles() -> None:
     # Não marca a chave como concluída antes de termos títulos. Assim uma falha
     # transitória de rede na primeira passagem pode ser tentada novamente.
     enrichment._EPISODE_TITLES = {}
+    enrichment._EPISODE_TITLES_LOCALIZED = set()
     enrichment._CONTEXT_KEY = None
 
     if context.kind == "anime" and metadata.source == "anilist":
@@ -313,10 +315,10 @@ def _load_episode_titles() -> None:
                     for code in cached_tmdb
                 )
             }
-            fetched_tmdb = (
+            fetched_tmdb, localized_tmdb = (
                 enrichment._tmdb_season_titles(tmdb_metadata, missing_tmdb)
                 if missing_tmdb
-                else {}
+                else ({}, set())
             )
             if fetched_tmdb:
                 cached_tmdb = {**cached_tmdb, **fetched_tmdb}
@@ -329,6 +331,7 @@ def _load_episode_titles() -> None:
                     )
                 except OSError:
                     pass
+            enrichment._EPISODE_TITLES_LOCALIZED.update(localized_tmdb)
 
             partial_titles = {
                 code: title
@@ -420,8 +423,9 @@ def _load_episode_titles() -> None:
         )
         return
 
-    # Séries/desenhos continuam usando a implementação existente, mas sem a chave
-    # prematuramente marcada: ela será preenchida somente se títulos forem obtidos.
+    # Séries/desenhos: consulta novamente as temporadas ativas para saber
+    # exatamente quais nomes vieram do locale pt-BR. O cache antigo guardava
+    # apenas o texto e não registrava a origem/localização do título.
     if (
         context.kind in {"desenho", "serie"}
         and metadata.source == "tmdb"
@@ -429,20 +433,12 @@ def _load_episode_titles() -> None:
     ):
         catalog_id = int(metadata.source_id)
         cached = enrichment._cached_titles(root, "tmdb", catalog_id)
-        if cached and _cache_covers_seasons(cached, seasons):
-            enrichment._EPISODE_TITLES = cached
-            enrichment._CONTEXT_KEY = key
-            return
 
-        missing = {
-            season
-            for season in seasons
-            if not any(code.startswith(f"S{season:02d}E") for code in cached)
-        }
-        fetched = enrichment._tmdb_season_titles(metadata, missing)
+        fetched, localized_codes = enrichment._tmdb_season_titles(metadata, set(seasons))
         merged = {**cached, **fetched}
         if merged:
             enrichment._EPISODE_TITLES = merged
+            enrichment._EPISODE_TITLES_LOCALIZED = set(localized_codes)
             enrichment._CONTEXT_KEY = key
             if fetched:
                 try:
@@ -450,7 +446,8 @@ def _load_episode_titles() -> None:
                 except OSError:
                     pass
                 print(
-                    f"Títulos de episódios: {len(merged)} carregados do catálogo."
+                    f"Títulos de episódios: {len(merged)} carregados do catálogo "
+                    f"({len(localized_codes)} em pt-BR)."
                 )
 
 

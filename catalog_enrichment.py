@@ -202,18 +202,14 @@ def _oggy_fandom_ptbr_title(
     original_title: str | None,
     aliases: tuple[str, ...] = (),
 ) -> str | None:
-    """Resolve a Brazilian Portuguese Oggy title without machine translation.
+    """Resolve Brazilian Portuguese Oggy titles without relying on episode numbers.
 
-    Oggy's Brazilian wiki often stores the original French episode title, while
-    TMDB/files commonly use the English title. Try both forms so the lookup is
-    not dependent on one catalog's naming convention.
+    Oggy has conflicting numbering/order across distributors. Resolve by title:
+    English wiki page -> direct pt-BR link, or English wiki -> French page title
+    -> search the Brazilian wiki. Optional aliases remain as a last fallback.
     """
-    candidates: list[str] = []
-    for value in (original_title, *aliases):
-        value = str(value or "").strip()
-        if value and value.casefold() not in {item.casefold() for item in candidates}:
-            candidates.append(value)
-    if not candidates:
+    original = str(original_title or "").strip()
+    if not original:
         return None
 
     series_names = {
@@ -223,14 +219,15 @@ def _oggy_fandom_ptbr_title(
     if not any("oggy" in value for value in series_names if value):
         return None
 
-    for original in candidates:
-        # 1) Explicit interlanguage mapping from the English/French page.
+    candidates: list[str] = [original]
+
+    def langlink(title: str, language: str) -> str | None:
         params = urllib.parse.urlencode(
             {
                 "action": "query",
                 "prop": "langlinks",
-                "titles": original,
-                "lllang": "pt-br",
+                "titles": title,
+                "lllang": language,
                 "format": "json",
                 "formatversion": 2,
                 "redirects": 1,
@@ -240,30 +237,46 @@ def _oggy_fandom_ptbr_title(
         try:
             payload = _request_json(url, attempts=2)
         except RuntimeError:
-            payload = None
-
+            return None
         query = payload.get("query") if isinstance(payload, dict) else None
         pages = query.get("pages") if isinstance(query, dict) else None
-        if isinstance(pages, list) and pages:
-            links = pages[0].get("langlinks") if isinstance(pages[0], dict) else None
-            if isinstance(links, list):
-                for link in links:
-                    if not isinstance(link, dict):
-                        continue
-                    if str(link.get("lang") or "").casefold() not in {"pt-br", "pt_br"}:
-                        continue
-                    title = str(link.get("title") or link.get("*") or "").strip()
-                    if title:
-                        return title
+        if not isinstance(pages, list) or not pages:
+            return None
+        links = pages[0].get("langlinks") if isinstance(pages[0], dict) else None
+        if not isinstance(links, list):
+            return None
+        for link in links:
+            if not isinstance(link, dict):
+                continue
+            value = str(link.get("title") or link.get("*") or "").strip()
+            if value:
+                return value
+        return None
 
-        # 2) Search the Brazilian wiki using either the English or French title.
+    # Best case: the English page links directly to the Brazilian Portuguese page.
+    direct_ptbr = langlink(original, "pt-br")
+    if direct_ptbr:
+        return direct_ptbr
+
+    # Important for Oggy: distributor episode numbers/order differ, so derive the
+    # French title from the English wiki page itself rather than TMDB SxxExx.
+    french = langlink(original, "fr")
+    if french:
+        candidates.append(french)
+
+    for value in aliases:
+        value = str(value or "").strip()
+        if value and value.casefold() not in {item.casefold() for item in candidates}:
+            candidates.append(value)
+
+    for candidate in candidates:
         search_params = urllib.parse.urlencode(
             {
                 "action": "query",
                 "list": "search",
-                "srsearch": f'"{original}"',
+                "srsearch": f'"{candidate}"',
                 "srwhat": "text",
-                "srlimit": 5,
+                "srlimit": 8,
                 "format": "json",
                 "formatversion": 2,
             }
@@ -277,20 +290,12 @@ def _oggy_fandom_ptbr_title(
         except RuntimeError:
             continue
 
-        search_query = (
-            search_payload.get("query")
-            if isinstance(search_payload, dict)
-            else None
-        )
-        results = (
-            search_query.get("search")
-            if isinstance(search_query, dict)
-            else None
-        )
+        search_query = search_payload.get("query") if isinstance(search_payload, dict) else None
+        results = search_query.get("search") if isinstance(search_query, dict) else None
         if not isinstance(results, list):
             continue
 
-        wanted = _normalized(original)
+        wanted = _normalized(candidate)
         for result in results:
             if not isinstance(result, dict):
                 continue
@@ -372,17 +377,11 @@ def _tmdb_season_titles(
                 credential,
                 {"language": "en-US"},
             )
-            french = media_catalog._tmdb_json(
-                f"/tv/{int(metadata.source_id)}/season/{season}",
-                credential,
-                {"language": "fr-FR"},
-            )
         except Exception:
             continue
 
         localized_entries = localized.get("episodes") if isinstance(localized, dict) else None
         english_entries = english.get("episodes") if isinstance(english, dict) else None
-        french_entries = french.get("episodes") if isinstance(french, dict) else None
         if not isinstance(localized_entries, list):
             continue
         if not isinstance(english_entries, list):
@@ -399,19 +398,6 @@ def _tmdb_season_titles(
             title = _useful_episode_name(entry.get("name"), number)
             if title:
                 english_by_number[number] = title
-
-        french_by_number: dict[int, str] = {}
-        if isinstance(french_entries, list):
-            for entry in french_entries:
-                if not isinstance(entry, dict):
-                    continue
-                try:
-                    number = int(entry.get("episode_number"))
-                except (TypeError, ValueError):
-                    continue
-                title = _useful_episode_name(entry.get("name"), number)
-                if title:
-                    french_by_number[number] = title
 
         seen_numbers: set[int] = set()
         for entry in localized_entries:
@@ -444,12 +430,9 @@ def _tmdb_season_titles(
                 )
 
             if not explicit_ptbr and english_title:
-                french_title = french_by_number.get(number)
-                aliases = (french_title,) if french_title else ()
                 explicit_ptbr = _oggy_fandom_ptbr_title(
                     metadata,
                     english_title,
-                    aliases=aliases,
                 )
 
             code = f"S{season:02d}E{number:02d}"

@@ -354,18 +354,19 @@ def smart_caption(item: upload.MediaItem) -> str:
     quality = launcher._quality_for_item(item)
     probe = _probe(item)
     release = classify_release(probe) if probe is not None else None
-    tag = _CONTEXT.search_tag if _CONTEXT.include_search_tag else None
-    return format_caption(item, quality=quality, release=release, search_tag=tag)
+    # A tag da obra fica somente na apresentação da biblioteca. Repeti-la em
+    # cada episódio polui o tópico sem acrescentar contexto.
+    return format_caption(item, quality=quality, release=release, search_tag=None)
 
 
 def season_header_text(library: str, season: int) -> str:
-    if _CONTEXT.include_search_tag and _CONTEXT.search_tag:
+    if _CONTEXT.include_search_tag:
         title = (
             _CONTEXT.metadata.title
             if _CONTEXT.metadata is not None and _CONTEXT.metadata.title
             else library
         )
-        return f"📺 {title.upper()} — TEMPORADA {season}\n#{_CONTEXT.search_tag}"
+        return f"📺 {title.upper()} — TEMPORADA {season}"
     return f"📺 #S{season:02d} — TEMPORADA {season}"
 
 

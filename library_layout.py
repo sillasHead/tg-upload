@@ -62,6 +62,7 @@ _ORIGINAL_BUILD_PARSER = None
 _ORIGINAL_MAYBE_PUBLISH = None
 _ORIGINAL_RUN = None
 _PROBE_CACHE: dict[tuple[str, int, int], media_compat.MediaProbe] = {}
+_SEASON_POSTER_CACHE: dict[tuple[int, int], str | None] = {}
 
 
 def _launcher():
@@ -377,13 +378,80 @@ def _poster_cache_path(poster: str) -> Path:
     return upload.APP_DIR / "poster-cache" / f"{digest}{suffix}"
 
 
-def poster_source(path: Path) -> Path | None:
-    metadata = _CONTEXT.metadata
-    root = _CONTEXT.root
-    if metadata is None or root is None or not metadata.poster:
+def _season_for_path(path: Path) -> int | None:
+    """Return the season number for the active media item matching this path."""
+    try:
+        wanted = Path(path).resolve()
+    except OSError:
+        wanted = Path(path)
+
+    for item in getattr(_launcher(), "_ACTIVE_ITEMS", []):
+        item_path = getattr(item, "path", None)
+        if item_path is None:
+            continue
+        try:
+            candidate = Path(item_path).resolve()
+        except OSError:
+            candidate = Path(item_path)
+        if candidate == wanted:
+            season = getattr(item, "season", None)
+            try:
+                return int(season) if season is not None else None
+            except (TypeError, ValueError):
+                return None
+    return None
+
+
+def season_poster_url(
+    metadata: anime_catalog.AnimeMetadata,
+    season: int,
+) -> str | None:
+    """Resolve and cache a TMDB season poster URL for series/cartoon libraries."""
+    if metadata.source != "tmdb" or metadata.source_id is None:
         return None
 
-    poster = metadata.poster.strip()
+    key = (int(metadata.source_id), int(season))
+    if key in _SEASON_POSTER_CACHE:
+        return _SEASON_POSTER_CACHE[key]
+
+    try:
+        credential = _entrypoint()._tmdb_credential(
+            upload.load_json(upload.CONFIG_PATH, {})
+        )
+    except Exception:
+        credential = None
+    if not credential:
+        _SEASON_POSTER_CACHE[key] = None
+        return None
+
+    poster_path = None
+    for language in ("pt-BR", "en-US"):
+        try:
+            details = media_catalog._tmdb_json(
+                f"/tv/{int(metadata.source_id)}/season/{int(season)}",
+                credential,
+                {"language": language},
+            )
+        except Exception:
+            continue
+        if isinstance(details, dict) and details.get("poster_path"):
+            poster_path = str(details["poster_path"]).strip()
+            break
+
+    result = (
+        f"{media_catalog.TMDB_IMAGE_BASE}{poster_path}"
+        if poster_path
+        else None
+    )
+    _SEASON_POSTER_CACHE[key] = result
+    return result
+
+
+def _materialize_poster(poster: str, root: Path) -> Path | None:
+    poster = str(poster or "").strip()
+    if not poster:
+        return None
+
     parsed = urllib.parse.urlparse(poster)
     if parsed.scheme in {"http", "https"}:
         target = _poster_cache_path(poster)
@@ -391,7 +459,10 @@ def poster_source(path: Path) -> Path | None:
             return target
         try:
             target.parent.mkdir(parents=True, exist_ok=True)
-            request = urllib.request.Request(poster, headers={"User-Agent": "tg-upload/1.0"})
+            request = urllib.request.Request(
+                poster,
+                headers={"User-Agent": "tg-upload/1.0"},
+            )
             temp = target.with_suffix(target.suffix + ".tmp")
             with urllib.request.urlopen(request, timeout=20) as response, temp.open("wb") as handle:
                 handle.write(response.read())
@@ -407,6 +478,31 @@ def poster_source(path: Path) -> Path | None:
     if not candidate.is_absolute():
         candidate = root / candidate
     return candidate if candidate.is_file() else None
+
+
+def poster_source(path: Path) -> Path | None:
+    """Prefer the matching season poster, then the show's generic poster."""
+    metadata = _CONTEXT.metadata
+    root = _CONTEXT.root
+    if metadata is None or root is None:
+        return None
+
+    if (
+        _CONTEXT.kind in {"desenho", "serie"}
+        and metadata.source == "tmdb"
+        and metadata.source_id is not None
+    ):
+        season = _season_for_path(path)
+        if season is not None:
+            season_poster = season_poster_url(metadata, season)
+            if season_poster:
+                materialized = _materialize_poster(season_poster, root)
+                if materialized is not None:
+                    return materialized
+
+    if metadata.poster:
+        return _materialize_poster(metadata.poster, root)
+    return None
 
 
 def _build_parser():

@@ -80,14 +80,14 @@ def season_header_text(library: str, season: int) -> str:
         return f"📺 #S{season:02d} — TEMPORADA {season}"
 
     context = layout._CONTEXT
-    if context.include_search_tag and context.search_tag:
+    if context.include_search_tag:
         title = (
             context.metadata.title
             if context.metadata is not None and context.metadata.title
             else library
         )
         title = _display_title(title)
-        return f"📺 {title.upper()} — TEMPORADA {season}\n#{context.search_tag}"
+        return f"📺 {title.upper()} — TEMPORADA {season}"
     return _ORIGINAL_SEASON_HEADER(library, season)
 
 

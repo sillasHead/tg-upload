@@ -1,6 +1,9 @@
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import patch
 
+import anime_catalog
 import library_layout
 import media_compat
 import upload
@@ -83,6 +86,73 @@ class LibraryLayoutTests(unittest.TestCase):
             caption,
             "#S01E21 - Metamorfose [1080p • Multi Áudio]\n#Parasyte",
         )
+
+    def test_episode_thumbnail_prefers_matching_season_poster(self):
+        path = Path("C:/Videos/Oggy/S02E03.mp4")
+        metadata = anime_catalog.AnimeMetadata(
+            title="Oggy e as Baratas Tontas",
+            source="tmdb",
+            source_id=2777,
+            poster="https://image.tmdb.org/t/p/w500/show.jpg",
+        )
+        previous_context = library_layout._CONTEXT
+        previous_launcher = library_layout._LAUNCHER
+        library_layout._CONTEXT = library_layout.LibraryContext(
+            root=Path("C:/Videos/Oggy"),
+            kind="desenho",
+            metadata=metadata,
+        )
+        library_layout._LAUNCHER = SimpleNamespace(
+            _ACTIVE_ITEMS=[SimpleNamespace(path=path, season=2)]
+        )
+        try:
+            with patch(
+                "library_layout.season_poster_url",
+                return_value="https://image.tmdb.org/t/p/w500/season2.jpg",
+            ) as season_poster:
+                with patch(
+                    "library_layout._materialize_poster",
+                    return_value=Path("cached-season.jpg"),
+                ) as materialize:
+                    result = library_layout.poster_source(path)
+
+            self.assertEqual(result, Path("cached-season.jpg"))
+            season_poster.assert_called_once_with(metadata, 2)
+            materialize.assert_called_once_with(
+                "https://image.tmdb.org/t/p/w500/season2.jpg",
+                Path("C:/Videos/Oggy"),
+            )
+        finally:
+            library_layout._CONTEXT = previous_context
+            library_layout._LAUNCHER = previous_launcher
+
+    def test_season_poster_url_is_cached_per_season(self):
+        metadata = anime_catalog.AnimeMetadata(
+            title="Oggy e as Baratas Tontas",
+            source="tmdb",
+            source_id=2777,
+        )
+        previous_entrypoint = library_layout._ENTRYPOINT
+        library_layout._ENTRYPOINT = SimpleNamespace(
+            _tmdb_credential=lambda config: "token"
+        )
+        library_layout._SEASON_POSTER_CACHE.clear()
+        try:
+            with patch("library_layout.upload.load_json", return_value={}):
+                with patch(
+                    "library_layout.media_catalog._tmdb_json",
+                    return_value={"poster_path": "/season1.jpg"},
+                ) as tmdb:
+                    first = library_layout.season_poster_url(metadata, 1)
+                    second = library_layout.season_poster_url(metadata, 1)
+
+            expected = f"{library_layout.media_catalog.TMDB_IMAGE_BASE}/season1.jpg"
+            self.assertEqual(first, expected)
+            self.assertEqual(second, expected)
+            tmdb.assert_called_once()
+        finally:
+            library_layout._SEASON_POSTER_CACHE.clear()
+            library_layout._ENTRYPOINT = previous_entrypoint
 
     def test_episode_without_title_does_not_create_dangling_separator(self):
         item = upload.MediaItem(

@@ -31,6 +31,30 @@ class CatalogFixesTests(unittest.TestCase):
             "Parasyte - the maxim",
         )
 
+    def test_catalog_header_does_not_repeat_search_tag(self):
+        previous_original = catalog_fixes._ORIGINAL_SEASON_HEADER
+        previous_context = library_layout._CONTEXT
+        catalog_fixes._ORIGINAL_SEASON_HEADER = library_layout.season_header_text
+        library_layout._CONTEXT = library_layout.LibraryContext(
+            kind="desenho",
+            metadata=anime_catalog.AnimeMetadata(title="Oggy e as Baratas Tontas"),
+            search_tag="Oggy_E_As_Baratas_Tontas",
+            include_search_tag=True,
+        )
+        try:
+            header = catalog_fixes.season_header_text(
+                "Oggy e as Baratas Tontas",
+                1,
+            )
+            self.assertEqual(
+                header,
+                "📺 OGGY E AS BARATAS TONTAS — TEMPORADA 1",
+            )
+            self.assertNotIn("#Oggy", header)
+        finally:
+            catalog_fixes._ORIGINAL_SEASON_HEADER = previous_original
+            library_layout._CONTEXT = previous_context
+
     def test_single_anime_season_can_be_remapped(self):
         titles = {"S01E01": "Episode One", "S01E02": "Episode Two"}
         self.assertEqual(

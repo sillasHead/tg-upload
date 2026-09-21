@@ -367,6 +367,62 @@ class CatalogEnrichmentTests(unittest.TestCase):
         self.assertEqual(title, "O Bilhete de Loteria")
 
 
+    def test_oggy_uses_fast_english_only_tmdb_path(self):
+        metadata = anime_catalog.AnimeMetadata(
+            title="Oggy e as Baratas Tontas",
+            source="tmdb",
+            source_id=2777,
+        )
+        english = {
+            "episodes": [
+                {"episode_number": 1, "name": "Bitter Chocolate"},
+                {"episode_number": 2, "name": "It's All Under Control"},
+                {"episode_number": 3, "name": "The Lottery Ticket"},
+            ]
+        }
+
+        old_entrypoint = catalog_enrichment._ENTRYPOINT
+        catalog_enrichment._ENTRYPOINT = SimpleNamespace(
+            _tmdb_credential=lambda config: "token"
+        )
+        try:
+            with patch("catalog_enrichment.upload.load_json", return_value={}):
+                with patch(
+                    "catalog_enrichment.media_catalog._tmdb_json",
+                    return_value=english,
+                ) as tmdb:
+                    with patch(
+                        "catalog_enrichment._oggy_fandom_ptbr_title"
+                    ) as fandom:
+                        with patch(
+                            "catalog_enrichment._tmdb_episode_ptbr_title"
+                        ) as episode_ptbr:
+                            titles, localized_codes = (
+                                catalog_enrichment._tmdb_season_titles(
+                                    metadata,
+                                    {1},
+                                )
+                            )
+
+            self.assertEqual(
+                titles,
+                {
+                    "S01E01": "Bitter Chocolate",
+                    "S01E02": "It's All Under Control",
+                    "S01E03": "The Lottery Ticket",
+                },
+            )
+            self.assertEqual(localized_codes, set())
+            tmdb.assert_called_once_with(
+                "/tv/2777/season/1",
+                "token",
+                {"language": "en-US"},
+            )
+            fandom.assert_not_called()
+            episode_ptbr.assert_not_called()
+        finally:
+            catalog_enrichment._ENTRYPOINT = old_entrypoint
+
     def test_tmdb_fallback_english_is_not_marked_as_ptbr(self):
         metadata = anime_catalog.AnimeMetadata(
             title="Uma Série Qualquer",

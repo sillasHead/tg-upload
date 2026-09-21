@@ -526,8 +526,46 @@ def _tmdb_season_titles(
 
     titles: dict[str, str] = {}
     localized_codes: set[str] = set()
+    series_names = {
+        _normalized(metadata.title),
+        _normalized(metadata.original_title or ""),
+    }
+    prefer_english_only = any(
+        "oggy" in value for value in series_names if value
+    )
 
     for season in sorted(value for value in seasons if value >= 0):
+        # Oggy has incompatible episode numbering across catalogs/distributors.
+        # Keep the stable English TMDB names and avoid the expensive pt-BR/Fandom
+        # lookup chain entirely. This also restores the fast behavior from before
+        # the Oggy localization experiment.
+        if prefer_english_only:
+            try:
+                english = media_catalog._tmdb_json(
+                    f"/tv/{int(metadata.source_id)}/season/{season}",
+                    credential,
+                    {"language": "en-US"},
+                )
+            except Exception:
+                continue
+
+            english_entries = (
+                english.get("episodes") if isinstance(english, dict) else None
+            )
+            if not isinstance(english_entries, list):
+                continue
+            for entry in english_entries:
+                if not isinstance(entry, dict):
+                    continue
+                try:
+                    number = int(entry.get("episode_number"))
+                except (TypeError, ValueError):
+                    continue
+                title = _useful_episode_name(entry.get("name"), number)
+                if title:
+                    titles[f"S{season:02d}E{number:02d}"] = title
+            continue
+
         try:
             localized = media_catalog._tmdb_json(
                 f"/tv/{int(metadata.source_id)}/season/{season}",

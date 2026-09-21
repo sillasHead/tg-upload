@@ -183,7 +183,16 @@ class LibraryLayoutTests(unittest.TestCase):
             with patch("library_layout.upload.load_json", return_value={}):
                 with patch(
                     "library_layout.media_catalog._tmdb_json",
-                    return_value={"poster_path": "/season1.jpg"},
+                    return_value={
+                        "posters": [
+                            {
+                                "file_path": "/season1.jpg",
+                                "iso_639_1": "en",
+                                "vote_average": 8.0,
+                                "vote_count": 5,
+                            }
+                        ]
+                    },
                 ) as tmdb:
                     first = library_layout.season_poster_url(metadata, 1)
                     second = library_layout.season_poster_url(metadata, 1)
@@ -192,6 +201,59 @@ class LibraryLayoutTests(unittest.TestCase):
             self.assertEqual(first, expected)
             self.assertEqual(second, expected)
             tmdb.assert_called_once()
+        finally:
+            library_layout._SEASON_POSTER_CACHE.clear()
+            library_layout._ENTRYPOINT = previous_entrypoint
+
+    def test_different_seasons_prefer_different_tmdb_posters(self):
+        metadata = anime_catalog.AnimeMetadata(
+            title="Oggy e as Baratas Tontas",
+            source="tmdb",
+            source_id=2777,
+            poster=f"{library_layout.media_catalog.TMDB_IMAGE_BASE}/generic.jpg",
+        )
+        previous_entrypoint = library_layout._ENTRYPOINT
+        library_layout._ENTRYPOINT = SimpleNamespace(
+            _tmdb_credential=lambda config: "token"
+        )
+        library_layout._SEASON_POSTER_CACHE.clear()
+
+        def fake_tmdb(path, credential, params):
+            if path.endswith("/season/1/images"):
+                return {
+                    "posters": [
+                        {"file_path": "/generic.jpg", "iso_639_1": "pt"},
+                        {"file_path": "/season1.jpg", "iso_639_1": "en"},
+                    ]
+                }
+            if path.endswith("/season/2/images"):
+                return {
+                    "posters": [
+                        {"file_path": "/generic.jpg", "iso_639_1": "pt"},
+                        {"file_path": "/season2.jpg", "iso_639_1": "en"},
+                        {"file_path": "/season1.jpg", "iso_639_1": None},
+                    ]
+                }
+            return {}
+
+        try:
+            with patch("library_layout.upload.load_json", return_value={}):
+                with patch(
+                    "library_layout.media_catalog._tmdb_json",
+                    side_effect=fake_tmdb,
+                ):
+                    season1 = library_layout.season_poster_url(metadata, 1)
+                    season2 = library_layout.season_poster_url(metadata, 2)
+
+            self.assertEqual(
+                season1,
+                f"{library_layout.media_catalog.TMDB_IMAGE_BASE}/season1.jpg",
+            )
+            self.assertEqual(
+                season2,
+                f"{library_layout.media_catalog.TMDB_IMAGE_BASE}/season2.jpg",
+            )
+            self.assertNotEqual(season1, season2)
         finally:
             library_layout._SEASON_POSTER_CACHE.clear()
             library_layout._ENTRYPOINT = previous_entrypoint

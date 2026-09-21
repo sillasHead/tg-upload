@@ -929,8 +929,6 @@ def smart_caption(item: upload.MediaItem) -> str:
     quality = launcher._quality_for_item(item)
     probe = _LIBRARY_LAYOUT._probe(item)
     release = _LIBRARY_LAYOUT.classify_release(probe) if probe is not None else None
-    tag = context.search_tag if context.include_search_tag else None
-
     title = _existing_episode_title(item.title, context.metadata)
     if item.code and _looks_like_series_title(title, context.metadata, item.season):
         title = ""
@@ -955,7 +953,7 @@ def smart_caption(item: upload.MediaItem) -> str:
         display_item,
         quality=quality,
         release=release,
-        search_tag=tag,
+        search_tag=None,
     )
 
 

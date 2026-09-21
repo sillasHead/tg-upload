@@ -123,12 +123,13 @@ class CatalogEnrichmentTests(unittest.TestCase):
             search_tag="Oggy",
             include_search_tag=True,
         )
+        formatter = MagicMock(side_effect=lambda value, **kwargs: value.title)
         fake_layout = SimpleNamespace(
             _CONTEXT=context,
             _launcher=lambda: SimpleNamespace(_quality_for_item=lambda value: "720p"),
             _probe=lambda value: None,
             classify_release=lambda value: None,
-            format_caption=lambda value, **kwargs: value.title,
+            format_caption=formatter,
         )
         previous_layout = catalog_enrichment._LIBRARY_LAYOUT
         previous_titles = catalog_enrichment._EPISODE_TITLES
@@ -138,10 +139,29 @@ class CatalogEnrichmentTests(unittest.TestCase):
         catalog_enrichment._EPISODE_TITLES_LOCALIZED = {"S01E01"}
         try:
             self.assertEqual(catalog_enrichment.smart_caption(item), "Chocolate Amargo")
+            self.assertIsNone(formatter.call_args.kwargs["search_tag"])
         finally:
             catalog_enrichment._LIBRARY_LAYOUT = previous_layout
             catalog_enrichment._EPISODE_TITLES = previous_titles
             catalog_enrichment._EPISODE_TITLES_LOCALIZED = previous_localized
+
+    def test_presentation_tag_is_kept_for_anime_and_cartoon_only(self):
+        import entrypoint
+        import library_layout
+
+        previous_context = library_layout._CONTEXT
+        library_layout._CONTEXT = library_layout.LibraryContext(
+            kind="anime",
+            search_tag="Parasyte",
+            include_search_tag=True,
+        )
+        try:
+            self.assertEqual(entrypoint._presentation_search_tag("anime"), "Parasyte")
+            self.assertEqual(entrypoint._presentation_search_tag("desenho"), "Parasyte")
+            self.assertEqual(entrypoint._presentation_search_tag("serie"), "Parasyte")
+            self.assertIsNone(entrypoint._presentation_search_tag("filme"))
+        finally:
+            library_layout._CONTEXT = previous_context
 
     def test_oggy_fandom_langlink_provides_ptbr_title(self):
         metadata = anime_catalog.AnimeMetadata(

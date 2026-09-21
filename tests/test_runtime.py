@@ -66,3 +66,26 @@ def test_tmdb_search_deduplicates_results(monkeypatch):
 
     assert len(result) == 1
     assert result[0].source_id == 387
+
+def test_runtime_does_not_add_work_hashtag_to_intro():
+    previous_context = runtime.library_layout._CONTEXT
+    runtime.library_layout._CONTEXT = runtime.library_layout.LibraryContext(
+        kind="anime",
+        search_tag="Parasyte",
+        include_search_tag=True,
+    )
+    try:
+        metadata = anime_catalog.AnimeMetadata(
+            title="Parasyte - The Maxim",
+            year=2014,
+        )
+        text = runtime.media_catalog.format_intro(
+            metadata,
+            "anime",
+            max_length=850,
+        )
+        assert "#Parasyte" not in text
+        assert "Parasyte - The Maxim" in text
+    finally:
+        runtime.library_layout._CONTEXT = previous_context
+

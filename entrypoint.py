@@ -12,6 +12,7 @@ from InquirerPy.base.control import Choice
 
 import anime_catalog
 import launcher
+import library_layout
 import media_catalog
 import upload
 

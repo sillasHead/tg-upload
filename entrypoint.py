@@ -497,6 +497,17 @@ def _metadata_with_active_season_poster(
     return replace(metadata, poster=poster)
 
 
+def _presentation_search_tag(kind: str) -> str | None:
+    """Return the collection tag only for the one-time media presentation."""
+    if kind not in {"anime", "desenho", "serie"}:
+        return None
+    context = library_layout._CONTEXT
+    if not getattr(context, "include_search_tag", False):
+        return None
+    value = str(getattr(context, "search_tag", "") or "").strip()
+    return value or None
+
+
 async def _publish_intro(
     client,
     destination: upload.Destination,
@@ -515,6 +526,10 @@ async def _publish_intro(
         audio_labels=audio_labels,
         max_length=TELEGRAM_MESSAGE_SAFE_LIMIT,
     )
+    search_tag = _presentation_search_tag(kind)
+    if search_tag:
+        base += f"\n#{search_tag}"
+
     synopsis = _full_synopsis(metadata, kind)
     synopsis_block = f"📝 Sinopse:\n{synopsis}" if synopsis else ""
     full_intro = base + (f"\n\n{synopsis_block}" if synopsis_block else "")

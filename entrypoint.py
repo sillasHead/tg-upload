@@ -489,27 +489,11 @@ def _metadata_with_active_season_poster(
         return metadata
 
     season = next(iter(seasons))
-    credential = _tmdb_credential(upload.load_json(upload.CONFIG_PATH, {}))
-    if not credential:
+    poster = library_layout.season_poster_url(metadata, season)
+    if not poster:
         return metadata
 
-    try:
-        details = media_catalog._tmdb_json(
-            f"/tv/{int(metadata.source_id)}/season/{season}",
-            credential,
-            {"language": "pt-BR"},
-        )
-    except Exception:
-        return metadata
-
-    poster_path = details.get("poster_path") if isinstance(details, dict) else None
-    if not poster_path:
-        return metadata
-
-    return replace(
-        metadata,
-        poster=f"{media_catalog.TMDB_IMAGE_BASE}{poster_path}",
-    )
+    return replace(metadata, poster=poster)
 
 
 async def _publish_intro(

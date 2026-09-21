@@ -234,18 +234,25 @@ def _video_thumbnail(path: Path, as_document: bool) -> Iterator[Path | None]:
         yield None
         return
 
-    metadata = _probe_video(path)
     ffmpeg = shutil.which("ffmpeg")
-    if metadata is None or not ffmpeg:
+    if not ffmpeg:
         yield None
         return
 
     with tempfile.TemporaryDirectory(prefix="tg-upload-thumb-") as temp_dir:
         output = Path(temp_dir) / "thumb.jpg"
 
+        # Prefer the catalog artwork first. For series/cartoon episodes this is
+        # now the matching TMDB season poster, so every episode in that season
+        # gets the same intentional cover instead of an arbitrary opening frame.
         cover = library_layout.poster_source(path)
         if cover is not None and _make_small_jpeg(ffmpeg, cover, output, seek=None):
             yield output
+            return
+
+        metadata = _probe_video(path)
+        if metadata is None:
+            yield None
             return
 
         # Fallback: evita primeiro frame preto/transição.

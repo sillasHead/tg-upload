@@ -354,8 +354,8 @@ def smart_caption(item: upload.MediaItem) -> str:
     quality = launcher._quality_for_item(item)
     probe = _probe(item)
     release = classify_release(probe) if probe is not None else None
-    # A tag da obra fica somente na apresentação da biblioteca. Repeti-la em
-    # cada episódio polui o tópico sem acrescentar contexto.
+    # O nome da obra já aparece na apresentação e no cabeçalho da temporada;
+    # não repete uma hashtag da obra em cada episódio.
     return format_caption(item, quality=quality, release=release, search_tag=None)
 
 

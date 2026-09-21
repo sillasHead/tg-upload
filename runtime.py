@@ -193,39 +193,9 @@ catalog_fixes.install(entrypoint, catalog_enrichment, library_layout)
 
 # Política visual final da biblioteca:
 # - episódios preservam #S01E01 para busca rápida;
-# - a tag canônica da obra também permanece na caption quando disponível;
+# - o nome da obra não é repetido como hashtag na apresentação/episódios;
 # - cabeçalhos de temporada continuam limpos;
 # - hífens que fazem parte do título oficial da obra são preservados.
-_ORIGINAL_FORMAT_INTRO = media_catalog.format_intro
-
-
-def _format_intro_with_search_tag(
-    metadata,
-    kind: str,
-    *,
-    quality: str | None = None,
-    audio_labels: tuple[str, ...] = (),
-    max_length: int = 1000,
-) -> str:
-    text = _ORIGINAL_FORMAT_INTRO(
-        metadata,
-        kind,
-        quality=quality,
-        audio_labels=audio_labels,
-        max_length=max_length,
-    )
-
-    context = library_layout._CONTEXT
-    tag = context.search_tag if context.include_search_tag else None
-    # entrypoint._publish_intro monta primeiro o bloco sem sinopse. É nesse bloco
-    # que a tag deve ficar para a pesquisa apontar para a apresentação/poster.
-    if not tag or getattr(metadata, "synopsis", None) is not None:
-        return text
-
-    marker = f"#{tag}"
-    if marker in text.splitlines():
-        return text
-    return f"{text.rstrip()}\n\n{marker}"
 
 
 def _format_episode_caption(
@@ -268,7 +238,6 @@ def _season_header_without_tags(library: str, season: int) -> str:
     return f"📺 S{season:02d} — TEMPORADA {season}"
 
 
-media_catalog.format_intro = _format_intro_with_search_tag
 library_layout.format_caption = _format_episode_caption
 library_layout.season_header_text = _season_header_without_tags
 

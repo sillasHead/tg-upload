@@ -519,20 +519,17 @@ class CatalogEnrichmentTests(unittest.TestCase):
             SimpleNamespace(season=1),
         ]
         try:
-            with patch("entrypoint.upload.load_json", return_value={}):
-                with patch("entrypoint._tmdb_credential", return_value="token"):
-                    with patch(
-                        "entrypoint.media_catalog._tmdb_json",
-                        return_value={"poster_path": "/season1.jpg"},
-                    ):
-                        updated = entrypoint._metadata_with_active_season_poster(
-                            metadata,
-                            "desenho",
-                        )
-            self.assertEqual(
-                updated.poster,
-                f"{entrypoint.media_catalog.TMDB_IMAGE_BASE}/season1.jpg",
-            )
+            expected = f"{entrypoint.media_catalog.TMDB_IMAGE_BASE}/season1.jpg"
+            with patch(
+                "entrypoint.library_layout.season_poster_url",
+                return_value=expected,
+            ) as season_poster:
+                updated = entrypoint._metadata_with_active_season_poster(
+                    metadata,
+                    "desenho",
+                )
+            self.assertEqual(updated.poster, expected)
+            season_poster.assert_called_once_with(metadata, 1)
         finally:
             entrypoint.launcher._ACTIVE_ITEMS = previous_items
 

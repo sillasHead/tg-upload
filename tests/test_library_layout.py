@@ -87,6 +87,48 @@ class LibraryLayoutTests(unittest.TestCase):
             "#S01E21 - Metamorfose [1080p • Multi Áudio]\n#Parasyte",
         )
 
+    def test_smart_caption_does_not_repeat_library_tag(self):
+        item = upload.MediaItem(
+            path=Path("S01E01 - Metamorfose [1080p].mkv"),
+            season=1,
+            episode=1,
+            code="S01E01",
+            title="Metamorfose [1080p]",
+        )
+        previous_context = library_layout._CONTEXT
+        previous_launcher = library_layout._LAUNCHER
+        library_layout._CONTEXT = library_layout.LibraryContext(
+            kind="anime",
+            search_tag="Parasyte",
+            include_search_tag=True,
+        )
+        library_layout._LAUNCHER = SimpleNamespace(
+            _quality_for_item=lambda value: "1080p"
+        )
+        try:
+            with patch("library_layout._probe", return_value=None):
+                caption = library_layout.smart_caption(item)
+            self.assertEqual(caption, "#S01E01 - Metamorfose [1080p]")
+            self.assertNotIn("#Parasyte", caption)
+        finally:
+            library_layout._CONTEXT = previous_context
+            library_layout._LAUNCHER = previous_launcher
+
+    def test_season_header_does_not_repeat_library_tag(self):
+        previous_context = library_layout._CONTEXT
+        library_layout._CONTEXT = library_layout.LibraryContext(
+            kind="desenho",
+            metadata=anime_catalog.AnimeMetadata(title="Oggy e as Baratas Tontas"),
+            search_tag="Oggy_E_As_Baratas_Tontas",
+            include_search_tag=True,
+        )
+        try:
+            header = library_layout.season_header_text("Oggy e as Baratas Tontas", 1)
+            self.assertEqual(header, "📺 OGGY E AS BARATAS TONTAS — TEMPORADA 1")
+            self.assertNotIn("#Oggy", header)
+        finally:
+            library_layout._CONTEXT = previous_context
+
     def test_episode_thumbnail_prefers_matching_season_poster(self):
         path = Path("C:/Videos/Oggy/S02E03.mp4")
         metadata = anime_catalog.AnimeMetadata(

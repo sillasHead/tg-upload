@@ -403,15 +403,79 @@ def _season_for_path(path: Path) -> int | None:
     return None
 
 
+def _poster_file_path(value: str | None) -> str | None:
+    """Normalize a TMDB poster URL/path to its /file.jpg form for comparisons."""
+    text = str(value or "").strip()
+    if not text:
+        return None
+    parsed = urllib.parse.urlparse(text)
+    path = parsed.path if parsed.scheme else text
+    name = Path(path).name
+    return f"/{name}" if name else None
+
+
+def _season_image_candidates(
+    metadata: anime_catalog.AnimeMetadata,
+    season: int,
+    credential: str,
+) -> list[str]:
+    """Return ranked TMDB poster paths that belong to this specific season."""
+    try:
+        payload = media_catalog._tmdb_json(
+            f"/tv/{int(metadata.source_id)}/season/{int(season)}/images",
+            credential,
+            {
+                "language": "pt-BR",
+                "include_image_language": "pt,en,null",
+            },
+        )
+    except Exception:
+        return []
+
+    posters = payload.get("posters") if isinstance(payload, dict) else None
+    if not isinstance(posters, list):
+        return []
+
+    def rank(item: dict[str, Any]) -> tuple[int, float, int]:
+        language = str(item.get("iso_639_1") or "").casefold()
+        language_rank = 0 if language == "pt" else 1 if language == "en" else 2
+        try:
+            vote_average = float(item.get("vote_average") or 0)
+        except (TypeError, ValueError):
+            vote_average = 0.0
+        try:
+            vote_count = int(item.get("vote_count") or 0)
+        except (TypeError, ValueError):
+            vote_count = 0
+        return (language_rank, -vote_average, -vote_count)
+
+    ranked = sorted(
+        (item for item in posters if isinstance(item, dict) and item.get("file_path")),
+        key=rank,
+    )
+    result: list[str] = []
+    for item in ranked:
+        path = str(item.get("file_path") or "").strip()
+        if path and path not in result:
+            result.append(path)
+    return result
+
+
 def season_poster_url(
     metadata: anime_catalog.AnimeMetadata,
     season: int,
 ) -> str | None:
-    """Resolve and cache a TMDB season poster URL for series/cartoon libraries."""
+    """Resolve and cache artwork that belongs to the requested TMDB season.
+
+    The season-images endpoint is preferred over the generic season details so
+    multi-season uploads do not accidentally reuse the same series artwork.
+    """
     if metadata.source != "tmdb" or metadata.source_id is None:
         return None
 
-    key = (int(metadata.source_id), int(season))
+    series_id = int(metadata.source_id)
+    season_number = int(season)
+    key = (series_id, season_number)
     if key in _SEASON_POSTER_CACHE:
         return _SEASON_POSTER_CACHE[key]
 
@@ -425,19 +489,48 @@ def season_poster_url(
         _SEASON_POSTER_CACHE[key] = None
         return None
 
-    poster_path = None
-    for language in ("pt-BR", "en-US"):
-        try:
-            details = media_catalog._tmdb_json(
-                f"/tv/{int(metadata.source_id)}/season/{int(season)}",
-                credential,
-                {"language": language},
-            )
-        except Exception:
-            continue
-        if isinstance(details, dict) and details.get("poster_path"):
-            poster_path = str(details["poster_path"]).strip()
-            break
+    generic_path = _poster_file_path(metadata.poster)
+    used_paths = {
+        _poster_file_path(url)
+        for (cached_series_id, cached_season), url in _SEASON_POSTER_CACHE.items()
+        if cached_series_id == series_id
+        and cached_season != season_number
+        and url
+    }
+
+    candidates = _season_image_candidates(metadata, season_number, credential)
+
+    # Prefer artwork unique to this season and different from the show's generic
+    # poster. If TMDB has only one season image, still use it before falling back.
+    poster_path = next(
+        (
+            path
+            for path in candidates
+            if path != generic_path and path not in used_paths
+        ),
+        None,
+    )
+    if poster_path is None:
+        poster_path = next(
+            (path for path in candidates if path != generic_path),
+            None,
+        )
+    if poster_path is None and candidates:
+        poster_path = candidates[0]
+
+    if poster_path is None:
+        for language in ("pt-BR", "en-US"):
+            try:
+                details = media_catalog._tmdb_json(
+                    f"/tv/{series_id}/season/{season_number}",
+                    credential,
+                    {"language": language},
+                )
+            except Exception:
+                continue
+            if isinstance(details, dict) and details.get("poster_path"):
+                poster_path = str(details["poster_path"]).strip()
+                break
 
     result = (
         f"{media_catalog.TMDB_IMAGE_BASE}{poster_path}"

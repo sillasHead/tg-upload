@@ -1,4 +1,5 @@
 import asyncio
+import tempfile
 import unittest
 from dataclasses import asdict
 from pathlib import Path
@@ -11,6 +12,7 @@ import anime_catalog
 import entrypoint
 import launcher
 import runtime  # aplica a política usada pelo executável instalado
+import upload
 
 
 class LauncherTests(unittest.TestCase):
@@ -39,6 +41,57 @@ class LauncherTests(unittest.TestCase):
 
         with patch.object(launcher, "_ACTIVE_PLAYBACK_FIX", "auto"):
             self.assertTrue(launcher._supports_streaming(Path("episode.mkv"), False))
+
+    def test_archive_upload_forces_document(self):
+        item = SimpleNamespace(path=Path("Pernalonga.part1.rar"))
+        original_send = AsyncMock()
+
+        with patch.object(entrypoint, "_ORIGINAL_SEND_MEDIA", original_send):
+            asyncio.run(
+                entrypoint._send_media(
+                    "client",
+                    "entity",
+                    item,
+                    False,
+                    123,
+                )
+            )
+
+        original_send.assert_awaited_once_with(
+            "client",
+            "entity",
+            item,
+            True,
+            123,
+        )
+
+    def test_collect_media_accepts_archives_and_sorts_multipart_naturally(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            for name in (
+                "Pernalonga.part10.rar",
+                "Pernalonga.part2.rar",
+                "Pernalonga.part1.rar",
+                "ignorar.exe",
+            ):
+                (root / name).write_bytes(b"x")
+
+            items = upload.collect_media(root, recursive=False)
+
+        self.assertEqual(
+            [item.path.name for item in items],
+            [
+                "Pernalonga.part1.rar",
+                "Pernalonga.part2.rar",
+                "Pernalonga.part10.rar",
+            ],
+        )
+
+    def test_archive_extensions_are_supported_documents(self):
+        self.assertTrue(upload.is_archive_path(Path("colecao.rar")))
+        self.assertTrue(upload.is_archive_path(Path("colecao.zip")))
+        self.assertTrue(upload.is_archive_path(Path("colecao.7z")))
+        self.assertFalse(upload.is_archive_path(Path("episodio.mkv")))
 
     def test_mkv_default_send_forces_document(self):
         item = SimpleNamespace(path=Path("episode.mkv"))

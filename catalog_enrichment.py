@@ -923,6 +923,8 @@ def _prime_context(destination) -> None:
 def smart_caption(item: upload.MediaItem) -> str:
     if _LIBRARY_LAYOUT is None:
         return item.title or item.path.stem
+    if upload.is_archive_path(item.path):
+        return item.title or item.path.stem
 
     launcher = _LIBRARY_LAYOUT._launcher()
     context = _LIBRARY_LAYOUT._CONTEXT

@@ -115,6 +115,15 @@ async def _send_media(
     as_document: bool,
     topic_id: int | None = None,
 ) -> None:
+    if upload.is_archive_path(item.path):
+        await _ORIGINAL_SEND_MEDIA(
+            client,
+            entity,
+            item,
+            True,
+            topic_id,
+        )
+        return
     if _MOVIE_CAPTION and item.code is None:
         item = upload.MediaItem(
             path=item.path,
@@ -587,6 +596,13 @@ async def _maybe_publish_media_intro(
     _MOVIE_CAPTION = None
 
     if launcher._ACTIVE_ARGS is None or launcher._ACTIVE_ANIME_INFO == "off":
+        return
+
+    # Arquivos compactados são documentos de armazenamento, não mídia para catálogo.
+    # Em lotes contendo apenas RAR/ZIP/7Z, não tenta TMDB/AniList nem publica ficha.
+    if launcher._ACTIVE_ITEMS and not any(
+        upload.is_video_path(item.path) for item in launcher._ACTIVE_ITEMS
+    ):
         return
 
     kind = _content_kind(destination)

@@ -350,6 +350,9 @@ def format_caption(
 
 
 def smart_caption(item: upload.MediaItem) -> str:
+    if upload.is_archive_path(item.path):
+        return item.title or item.path.stem
+
     launcher = _launcher()
     quality = launcher._quality_for_item(item)
     probe = _probe(item)
@@ -627,7 +630,7 @@ async def _run_with_layout(args) -> int:
     target = Path(args.path).expanduser().resolve()
     items = upload.collect_media(target, recursive=not args.no_recursive)
     if not items:
-        print("Nenhum vídeo encontrado.")
+        print("Nenhum arquivo suportado encontrado.")
         return 1
 
     if args.dry_run:

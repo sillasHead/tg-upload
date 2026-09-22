@@ -243,6 +243,11 @@ library_layout.season_header_text = _season_header_without_tags
 
 
 def main() -> int:
+    if len(__import__("sys").argv) >= 2 and __import__("sys").argv[1].casefold() == "clone-channel":
+        import channel_clone
+
+        return channel_clone.main(__import__("sys").argv[2:])
+
     special = entrypoint._catalog_special_command()
     if special is not None:
         return special

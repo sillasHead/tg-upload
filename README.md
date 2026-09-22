@@ -234,6 +234,21 @@ tg-upload "C:\Videos\Minha Serie" --playback-fix off
 
 Para guardar arquivos no Telegram e posteriormente apagar a cópia local, prefira o padrão `off`. Antes de apagar arquivos importantes, confirme que o upload terminou e que o arquivo pode ser baixado novamente.
 
+## Arquivos compactados
+
+O `tg-upload` também aceita arquivos **RAR, ZIP e 7Z**. Eles são enviados automaticamente como documentos, sem `ffprobe`, thumbnail, tentativa de streaming ou consulta ao catálogo.
+
+Exemplos:
+
+```powershell
+tg-upload "C:\Videos\Pernalonga.part1.rar" --to desenho
+tg-upload "C:\Videos\Pernalonga" --to desenho
+```
+
+Ao apontar para uma pasta, vídeos e arquivos compactados suportados são coletados. Arquivos multipart como `part1.rar`, `part2.rar`, ..., `part10.rar` são ordenados numericamente antes do envio. Em um lote composto somente por arquivos compactados, não é publicada apresentação de anime/desenho/série, pois o conteúdo é tratado como armazenamento de documentos.
+
+Os limites de tamanho por arquivo do Telegram continuam valendo normalmente.
+
 ## Envio em lote e estado
 
 Uma estrutura típica:

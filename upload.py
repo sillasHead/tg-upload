@@ -21,6 +21,8 @@ CONFIG_PATH = APP_DIR / "config.json"
 STATE_PATH = APP_DIR / "state.json"
 SESSION_BASE = APP_DIR / "telegram"
 VIDEO_EXTENSIONS = {".mp4", ".mkv", ".mov", ".webm", ".avi", ".m4v"}
+ARCHIVE_EXTENSIONS = {".rar", ".zip", ".7z"}
+SUPPORTED_EXTENSIONS = VIDEO_EXTENSIONS | ARCHIVE_EXTENSIONS
 EPISODE_RE = re.compile(r"(?i)\bS(?P<season>\d{1,3})E(?P<episode>\d{1,4})\b")
 QUALITY_RE = re.compile(r"\s*\[(?:\d{3,4}p|4k|8k)\]\s*$", re.IGNORECASE)
 SEASON_DIR_RE = re.compile(r"(?i)^(?:(?:season|temporada)\s*|s)0*(\d+)$")
@@ -96,6 +98,23 @@ def clean_title(stem: str, match: re.Match[str] | None) -> str:
     return title or stem
 
 
+def is_video_path(path: Path) -> bool:
+    return Path(path).suffix.casefold() in VIDEO_EXTENSIONS
+
+
+def is_archive_path(path: Path) -> bool:
+    return Path(path).suffix.casefold() in ARCHIVE_EXTENSIONS
+
+
+def _natural_name_key(path: Path) -> tuple[tuple[int, object], ...]:
+    parts = re.split(r"(\d+)", path.name.casefold())
+    return tuple(
+        (1, int(part)) if part.isdigit() else (0, part)
+        for part in parts
+        if part
+    )
+
+
 def parse_media(path: Path) -> MediaItem:
     stem = path.stem
     match = EPISODE_RE.search(stem)
@@ -116,12 +135,16 @@ def parse_media(path: Path) -> MediaItem:
 
 def collect_media(target: Path, recursive: bool) -> list[MediaItem]:
     if target.is_file():
-        if target.suffix.lower() not in VIDEO_EXTENSIONS:
+        if target.suffix.casefold() not in SUPPORTED_EXTENSIONS:
             raise ValueError(f"Formato não suportado: {target.suffix}")
         paths = [target]
     elif target.is_dir():
         iterator = target.rglob("*") if recursive else target.glob("*")
-        paths = [p for p in iterator if p.is_file() and p.suffix.lower() in VIDEO_EXTENSIONS]
+        paths = [
+            p
+            for p in iterator
+            if p.is_file() and p.suffix.casefold() in SUPPORTED_EXTENSIONS
+        ]
     else:
         raise FileNotFoundError(f"Caminho não encontrado: {target}")
 
@@ -130,7 +153,7 @@ def collect_media(target: Path, recursive: bool) -> list[MediaItem]:
         key=lambda item: (
             item.season if item.season is not None else 9999,
             item.episode if item.episode is not None else 999999,
-            item.path.name.lower(),
+            _natural_name_key(item.path),
         )
     )
     return items
@@ -165,7 +188,7 @@ def header_key(channel_id: int, topic_id: int | None, library: str, season: int)
 
 def print_plan(items: list[MediaItem]) -> None:
     if not items:
-        print("Nenhum vídeo encontrado.")
+        print("Nenhum arquivo suportado encontrado.")
         return
 
     last_season: int | None = None

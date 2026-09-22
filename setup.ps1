@@ -37,7 +37,7 @@ try {
     }
     Write-Host "Versão GitHub: $($commitSha.Substring(0, 7))" -ForegroundColor DarkGray
 
-    foreach ($name in @("upload.py", "launcher.py", "entrypoint.py", "runtime.py", "fast_upload.py", "telegram_video.py", "library_layout.py", "catalog_enrichment.py", "catalog_fixes.py", "media_compat.py", "anime_catalog.py", "media_catalog.py", "requirements.txt")) {
+    foreach ($name in @("upload.py", "launcher.py", "entrypoint.py", "runtime.py", "fast_upload.py", "telegram_video.py", "library_layout.py", "catalog_enrichment.py", "catalog_fixes.py", "media_compat.py", "anime_catalog.py", "media_catalog.py", "channel_clone.py", "requirements.txt")) {
         $url = "https://raw.githubusercontent.com/$repo/$commitSha/$name"
         $target = Join-Path $tempDir $name
         Invoke-WebRequest -Uri $url -OutFile $target -UseBasicParsing -Headers @{ "Cache-Control" = "no-cache" }
@@ -76,6 +76,7 @@ try {
     Copy-Item -LiteralPath (Join-Path $tempDir "media_compat.py") -Destination (Join-Path $appDir "media_compat.py") -Force
     Copy-Item -LiteralPath (Join-Path $tempDir "anime_catalog.py") -Destination (Join-Path $appDir "anime_catalog.py") -Force
     Copy-Item -LiteralPath (Join-Path $tempDir "media_catalog.py") -Destination (Join-Path $appDir "media_catalog.py") -Force
+    Copy-Item -LiteralPath (Join-Path $tempDir "channel_clone.py") -Destination (Join-Path $appDir "channel_clone.py") -Force
     Copy-Item -LiteralPath (Join-Path $tempDir "requirements.txt") -Destination (Join-Path $appDir "requirements.txt") -Force
 
     $cmdPath = Join-Path $binDir "tg-upload.cmd"

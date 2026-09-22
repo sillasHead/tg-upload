@@ -286,14 +286,6 @@ Uploads concluídos ficam registrados em:
 
 Por isso, repetir o mesmo comando não reenvia automaticamente episódios já concluídos.
 
-## Histórico das fontes da biblioteca
-
-As origens das releases e os métodos usados para montar/baixar cada obra ficam registrados em:
-
-`docs/media-source-history.md`
-
-O histórico inclui, entre outros, **Psycho-Pass**, **Oggy e as Baratas Tontas** e **Coragem, o Cão Covarde**.
-
 ## Privacidade
 
 API ID/hash, telefone, códigos de login, sessão do Telegram, token do TMDB, IDs privados e histórico de upload não precisam ser publicados no GitHub. O repositório contém apenas o código; os dados de execução permanecem no computador do usuário.

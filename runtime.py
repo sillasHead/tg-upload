@@ -193,8 +193,8 @@ catalog_fixes.install(entrypoint, catalog_enrichment, library_layout)
 
 # Política visual final da biblioteca:
 # - episódios preservam #S01E01 para busca rápida;
-# - o nome da obra não é repetido como hashtag na apresentação/episódios;
-# - cabeçalhos de temporada continuam limpos;
+# - a hashtag da obra aparece uma única vez na apresentação, facilitando índices;
+# - episódios e cabeçalhos de temporada não repetem a hashtag da obra;
 # - hífens que fazem parte do título oficial da obra são preservados.
 
 

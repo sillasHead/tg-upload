@@ -1,6 +1,10 @@
 from __future__ import annotations
 
 from dataclasses import replace
+import unittest
+from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import patch
 
 import anime_catalog
 import runtime
@@ -89,3 +93,76 @@ def test_runtime_does_not_add_work_hashtag_to_intro():
     finally:
         runtime.library_layout._CONTEXT = previous_context
 
+
+
+class RuntimePresentationTests(unittest.IsolatedAsyncioTestCase):
+    async def test_work_hashtag_is_added_only_to_presentation_caption(self):
+        previous_context = runtime.library_layout._CONTEXT
+        previous_items = runtime.entrypoint.launcher._ACTIVE_ITEMS
+        runtime.library_layout._CONTEXT = runtime.library_layout.LibraryContext(
+            kind="desenho",
+            search_tag="Bob_Esponja",
+            include_search_tag=True,
+        )
+        runtime.entrypoint.launcher._ACTIVE_ITEMS = [SimpleNamespace()]
+        client = SimpleNamespace()
+        captured = {}
+
+        async def send_file(entity, path, caption, reply_to=None, parse_mode=None):
+            captured["caption"] = caption
+
+        client.send_file = send_file
+        destination = SimpleNamespace(entity="chat", topic_id=None)
+        metadata = anime_catalog.AnimeMetadata(
+            title="Bob Esponja",
+            synopsis="Uma sinopse curta.",
+        )
+
+        try:
+            with patch.object(
+                runtime.entrypoint.launcher,
+                "_quality_for_item",
+                return_value="720p",
+            ), patch.object(
+                runtime.entrypoint.launcher,
+                "_audio_labels_for_item",
+                return_value=("und",),
+            ), patch.object(
+                runtime.entrypoint.media_catalog,
+                "format_intro",
+                return_value="📺 Bob Esponja\n🌐 SpongeBob SquarePants\n\n📅 Ano: 1999",
+            ), patch.object(
+                runtime.entrypoint,
+                "_full_synopsis",
+                return_value="Uma sinopse curta.",
+            ), patch.object(
+                runtime.entrypoint.media_catalog,
+                "resolve_poster",
+                return_value=(Path("poster.jpg"), None),
+            ):
+                await runtime.entrypoint._publish_intro(
+                    client,
+                    destination,
+                    metadata,
+                    Path("."),
+                    "desenho",
+                )
+        finally:
+            runtime.library_layout._CONTEXT = previous_context
+            runtime.entrypoint.launcher._ACTIVE_ITEMS = previous_items
+
+        caption = captured["caption"]
+        self.assertIn("\n#Bob_Esponja\n\n📝 Sinopse:", caption)
+        self.assertEqual(caption.count("#Bob_Esponja"), 1)
+
+    def test_presentation_tag_is_not_used_for_movies(self):
+        previous_context = runtime.library_layout._CONTEXT
+        runtime.library_layout._CONTEXT = runtime.library_layout.LibraryContext(
+            kind="filme",
+            search_tag="Bob_Esponja",
+            include_search_tag=True,
+        )
+        try:
+            self.assertIsNone(runtime.entrypoint._presentation_search_tag("filme"))
+        finally:
+            runtime.library_layout._CONTEXT = previous_context
